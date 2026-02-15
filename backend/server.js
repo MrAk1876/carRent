@@ -10,7 +10,7 @@ const app = createApp({ enableRootHealthRoute: true });
 app.use(express.static(path.resolve(__dirname, '../client/dist')));
 
 // SPA fallback (exclude API routes)
-app.get('*', (req, res, next) => {
+app.get('/*', (req, res, next) => {
   if (req.originalUrl.startsWith('/api')) {
     return next();
   }
