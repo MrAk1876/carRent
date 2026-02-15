@@ -63,7 +63,12 @@ const Layout = () => {
       </div>
       <div className="relative flex min-h-0 flex-1">
         <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-        <main className={`min-w-0 flex-1 overflow-x-hidden ${useSectionScroll ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <main
+          data-scroll-mode={useSectionScroll ? 'section+full' : 'full'}
+          className={`admin-main min-w-0 flex-1 overflow-x-hidden overflow-y-auto ${
+            useSectionScroll ? 'admin-main--section' : ''
+          }`}
+        >
           <Outlet />
         </main>
       </div>

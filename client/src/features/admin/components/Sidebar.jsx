@@ -98,6 +98,21 @@ const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
             </div>
           ))}
         </nav>
+
+        <button
+          type="button"
+          className="owner-sidebar__home-btn"
+          onClick={() => {
+            navigate('/');
+            onClose();
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5 12 3l9 7.5" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 9.5V21h14V9.5" />
+          </svg>
+          <span>Back To Home</span>
+        </button>
       </aside>
     </>
   );

@@ -118,9 +118,9 @@ const ManageBooking = () => {
         </div>
       </div>
 
-      <div className="admin-section-scroll-shell mt-6">
+      <div className="admin-section-scroll-shell admin-section-scroll-shell--table mt-6">
         <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
-        <div className="admin-section-scroll admin-section-scroll--free">
+        <div className="admin-section-scroll admin-section-scroll--free admin-section-scroll--table">
           <div className="max-w-6xl rounded-2xl border border-borderColor bg-white shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-borderColor flex items-center justify-between">
               <p className="font-medium text-gray-800">Booking Approval Queue</p>

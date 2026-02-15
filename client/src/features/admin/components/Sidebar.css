@@ -145,6 +145,37 @@
   gap: 10px;
 }
 
+.owner-sidebar__home-btn {
+  position: relative;
+  z-index: 1;
+  margin-top: 14px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(239, 246, 255, 0.96));
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 200ms ease, background-color 200ms ease;
+}
+
+.owner-sidebar__home-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.owner-sidebar__home-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(219, 234, 254, 0.98));
+}
+
 .owner-sidebar__group {
   display: flex;
   flex-direction: column;

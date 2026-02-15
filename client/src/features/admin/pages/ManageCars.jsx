@@ -143,9 +143,9 @@ const ManageCars = () => {
         </div>
       </div>
 
-      <div className="admin-section-scroll-shell mt-4">
+      <div className="admin-section-scroll-shell admin-section-scroll-shell--table mt-4">
         <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
-        <div className="admin-section-scroll admin-section-scroll--free">
+        <div className="admin-section-scroll admin-section-scroll--free admin-section-scroll--table">
           <div className="max-w-6xl w-full rounded-2xl overflow-hidden border border-borderColor bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full min-w-245 border-collapse text-left text-sm text-gray-600">

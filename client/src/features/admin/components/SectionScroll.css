@@ -67,3 +67,91 @@
 .admin-section-scroll::-webkit-scrollbar-track {
   background: rgba(241, 245, 249, 0.8);
 }
+
+.admin-main {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.admin-main::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.admin-main--section .admin-section-page {
+  height: auto;
+  min-height: 100%;
+}
+
+.admin-main--section .admin-section-scroll-shell {
+  position: sticky;
+  top: 10px;
+  z-index: 2;
+  flex: none;
+}
+
+.admin-main--section .admin-section-scroll {
+  height: auto;
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.admin-main--section .admin-section-scroll table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.admin-main--section .admin-section-scroll table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  background: rgb(248 250 252);
+  box-shadow: inset 0 -1px 0 rgba(203, 213, 225, 0.9);
+}
+
+.admin-main--section .admin-section-scroll-shell--table {
+  position: relative;
+  top: auto;
+  z-index: auto;
+}
+
+.admin-section-scroll-shell--table .admin-section-blur {
+  display: none;
+}
+
+.admin-main--section .admin-section-scroll--table {
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+  padding: 0;
+  scroll-snap-type: none;
+}
+
+.admin-main--section .admin-section-scroll--table > * {
+  scroll-snap-align: none;
+  scroll-snap-stop: normal;
+}
+
+.admin-section-scroll--table .overflow-x-auto {
+  max-height: clamp(18rem, 52dvh, 38rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable both-edges;
+}
+
+.admin-section-scroll--table .overflow-x-auto > table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.admin-section-scroll--table .overflow-x-auto > table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(248 250 252);
+  box-shadow: inset 0 -1px 0 rgba(203, 213, 225, 0.9);
+}
