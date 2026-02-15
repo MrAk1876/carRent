@@ -9,8 +9,8 @@ const app = createApp({ enableRootHealthRoute: true });
 // Serve React build
 app.use(express.static(path.resolve(__dirname, '../client/dist')));
 
-// SPA fallback (exclude API routes)
-app.get('/*', (req, res, next) => {
+// SPA fallback (Express 5 safe)
+app.use((req, res, next) => {
   if (req.originalUrl.startsWith('/api')) {
     return next();
   }
