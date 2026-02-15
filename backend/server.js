@@ -9,7 +9,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const distPath = path.join(__dirname, '../client/dist');
 
 const app = express();
-const apiApp = createApp({ enableRootHealthRoute: !isProduction });
+const apiApp = createApp({ enableRootHealthRoute: false });
 const serveClientBuild = express.static(distPath);
 
 app.disable('x-powered-by');
