@@ -1,6 +1,7 @@
 {
   "name": "car-rent",
   "private": true,
+  "type": "module",
   "version": "1.0.0",
   "scripts": {
     "dev": "npm --prefix backend run dev:single",
