@@ -7,7 +7,7 @@ let dbConnected = false;
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:5173',
-  'https://carrent-production-0235.up.railway.app',
+  'https://carrent.up.railway.app/',
 ];
 
 const normalizeOrigin = (origin = '') => origin.trim().replace(/\/+$/, '').toLowerCase();
