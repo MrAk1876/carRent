@@ -4,7 +4,7 @@ import Title from '../components/Title';
 import useNotify from '../../../hooks/useNotify';
 
 const AdminBookings = () => {
-  const currency = import.meta.env.VITE_CURRENCY || '₹';
+  const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const notify = useNotify();
   const [bookings, setBookings] = useState([]);
   const [counterPriceById, setCounterPriceById] = useState({});
@@ -105,7 +105,7 @@ const AdminBookings = () => {
   };
 
   return (
-    <div className="px-4 pt-10 md:px-10 pb-10 w-full">
+    <div className="admin-section-page px-4 pt-6 md:pt-10 md:px-10 pb-8 md:pb-10 w-full">
       <Title
         title="Active Rentals"
         subTitle="Track ongoing rentals, collect final payment on return, and close negotiations."
@@ -135,163 +135,169 @@ const AdminBookings = () => {
         </div>
       </div>
 
-      <div className="mt-6 space-y-4 max-w-6xl">
-        {bookings.length === 0 && (
-          <div className="rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
-            No rentals found.
-          </div>
-        )}
-
-        {bookings.map((booking) => {
-          const remainingAmount = Math.max(
-            Number(booking.totalAmount || 0) - Number(booking.advanceAmount || 0),
-            0
-          );
-          const userName = `${booking.user?.firstName || ''} ${booking.user?.lastName || ''}`.trim();
-
-          return (
-            <div key={booking._id} className="rounded-2xl border border-borderColor bg-white p-4 md:p-5 shadow-sm">
-              <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_auto] gap-5">
-                <div className="flex gap-4">
-                  <img
-                    src={booking.car?.image}
-                    alt="car"
-                    className="w-28 h-20 object-cover rounded-lg border border-borderColor"
-                  />
-                  <div>
-                    <h3 className="font-semibold text-lg text-gray-800">
-                      {booking.car?.brand} {booking.car?.model}
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      User: {userName || 'Unknown'} ({booking.user?.email || 'N/A'})
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {booking.fromDate?.split('T')[0]} to {booking.toDate?.split('T')[0]}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                      <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700">
-                        {booking.bookingStatus || 'UNKNOWN'}
-                      </span>
-                      <span className="px-2 py-1 rounded-full bg-violet-50 text-violet-700">
-                        {booking.tripStatus || 'upcoming'}
-                      </span>
-                      <span
-                        className={`px-2 py-1 rounded-full ${
-                          booking.paymentStatus === 'FULLY_PAID'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-amber-100 text-amber-700'
-                        }`}
-                      >
-                        {booking.paymentStatus || 'PENDING'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-lg bg-light p-3">
-                    <p className="text-xs text-gray-500">Total</p>
-                    <p className="font-semibold text-gray-800">
-                      {currency}
-                      {booking.totalAmount}
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-light p-3">
-                    <p className="text-xs text-gray-500">Advance</p>
-                    <p className="font-semibold text-gray-800">
-                      {currency}
-                      {booking.advanceAmount || 0}
-                    </p>
-                    <p className="text-[11px] text-gray-500">{booking.paymentMethod || 'NONE'}</p>
-                  </div>
-                  <div className="rounded-lg bg-light p-3">
-                    <p className="text-xs text-gray-500">Remaining</p>
-                    <p className="font-semibold text-gray-800">
-                      {currency}
-                      {remainingAmount}
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-light p-3">
-                    <p className="text-xs text-gray-500">Negotiation</p>
-                    <p className="font-semibold text-gray-800">{booking.bargain?.status || 'NONE'}</p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-stretch gap-2 min-w-45">
-                  {booking.bookingStatus === 'CONFIRMED' && booking.tripStatus !== 'completed' && (
-                    <>
-                      <select
-                        value={completionPaymentMethodById[booking._id] || 'CASH'}
-                        onChange={(e) =>
-                          setCompletionPaymentMethodById((prev) => ({
-                            ...prev,
-                            [booking._id]: e.target.value,
-                          }))
-                        }
-                        className="border border-borderColor rounded-lg px-3 py-2 text-sm"
-                      >
-                        <option value="CASH">Cash</option>
-                        <option value="CARD">Card</option>
-                        <option value="UPI">UPI</option>
-                        <option value="NETBANKING">Net Banking</option>
-                      </select>
-                      <button
-                        onClick={() => completeBooking(booking._id)}
-                        className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium"
-                      >
-                        Return Car
-                      </button>
-                    </>
-                  )}
-
-                  <button
-                    onClick={() => deleteBooking(booking._id)}
-                    className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium"
-                  >
-                    Delete
-                  </button>
-                </div>
+      <div className="admin-section-scroll-shell mt-6">
+        <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
+        <div className="admin-section-scroll">
+          <div className="space-y-4 max-w-6xl">
+            {bookings.length === 0 && (
+              <div className="rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
+                No rentals found.
               </div>
+            )}
 
-              {booking.bargain?.status === 'USER_OFFERED' && (
-                <div className="mt-4 pt-4 border-t border-borderColor">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Negotiation Action</p>
-                  <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-                    <input
-                      type="number"
-                      placeholder="Counter price"
-                      value={counterPriceById[booking._id] || ''}
-                      onChange={(e) =>
-                        setCounterPriceById((prev) => ({ ...prev, [booking._id]: e.target.value }))
-                      }
-                      className="border border-borderColor rounded-lg px-3 py-2 text-sm"
-                    />
-                    <div className="flex gap-2">
+            {bookings.map((booking) => {
+              const remainingAmount = Math.max(
+                Number(booking.totalAmount || 0) - Number(booking.advanceAmount || 0),
+                0
+              );
+              const userName = `${booking.user?.firstName || ''} ${booking.user?.lastName || ''}`.trim();
+
+              return (
+                <div key={booking._id} className="snap-start rounded-2xl border border-borderColor bg-white p-4 md:p-5 shadow-sm">
+                  <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_auto] gap-5">
+                    <div className="flex gap-4">
+                      <img
+                        src={booking.car?.image}
+                        alt="car"
+                        className="w-28 h-20 object-cover rounded-lg border border-borderColor"
+                      />
+                      <div>
+                        <h3 className="font-semibold text-lg text-gray-800">
+                          {booking.car?.brand} {booking.car?.model}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          User: {userName || 'Unknown'} ({booking.user?.email || 'N/A'})
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {booking.fromDate?.split('T')[0]} to {booking.toDate?.split('T')[0]}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                          <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700">
+                            {booking.bookingStatus || 'UNKNOWN'}
+                          </span>
+                          <span className="px-2 py-1 rounded-full bg-violet-50 text-violet-700">
+                            {booking.tripStatus || 'upcoming'}
+                          </span>
+                          <span
+                            className={`px-2 py-1 rounded-full ${
+                              booking.paymentStatus === 'FULLY_PAID'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {booking.paymentStatus || 'PENDING'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-lg bg-light p-3">
+                        <p className="text-xs text-gray-500">Total</p>
+                        <p className="font-semibold text-gray-800">
+                          {currency}
+                          {booking.totalAmount}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-light p-3">
+                        <p className="text-xs text-gray-500">Advance</p>
+                        <p className="font-semibold text-gray-800">
+                          {currency}
+                          {booking.advanceAmount || 0}
+                        </p>
+                        <p className="text-[11px] text-gray-500">{booking.paymentMethod || 'NONE'}</p>
+                      </div>
+                      <div className="rounded-lg bg-light p-3">
+                        <p className="text-xs text-gray-500">Remaining</p>
+                        <p className="font-semibold text-gray-800">
+                          {currency}
+                          {remainingAmount}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-light p-3">
+                        <p className="text-xs text-gray-500">Negotiation</p>
+                        <p className="font-semibold text-gray-800">{booking.bargain?.status || 'NONE'}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-stretch gap-2 min-w-45">
+                      {booking.bookingStatus === 'CONFIRMED' && booking.tripStatus !== 'completed' && (
+                        <>
+                          <select
+                            value={completionPaymentMethodById[booking._id] || 'CASH'}
+                            onChange={(e) =>
+                              setCompletionPaymentMethodById((prev) => ({
+                                ...prev,
+                                [booking._id]: e.target.value,
+                              }))
+                            }
+                            className="border border-borderColor rounded-lg px-3 py-2 text-sm"
+                          >
+                            <option value="CASH">Cash</option>
+                            <option value="CARD">Card</option>
+                            <option value="UPI">UPI</option>
+                            <option value="NETBANKING">Net Banking</option>
+                          </select>
+                          <button
+                            onClick={() => completeBooking(booking._id)}
+                            className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium"
+                          >
+                            Return Car
+                          </button>
+                        </>
+                      )}
+
                       <button
-                        onClick={() => acceptBargain(booking._id)}
-                        className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm"
+                        onClick={() => deleteBooking(booking._id)}
+                        className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium"
                       >
-                        Accept
-                      </button>
-                      <button
-                        onClick={() => counterBargain(booking._id)}
-                        className="bg-amber-500 text-white px-3 py-2 rounded-lg text-sm"
-                      >
-                        Counter
-                      </button>
-                      <button
-                        onClick={() => rejectBargain(booking._id)}
-                        className="bg-red-500 text-white px-3 py-2 rounded-lg text-sm"
-                      >
-                        Reject
+                        Delete
                       </button>
                     </div>
                   </div>
+
+                  {booking.bargain?.status === 'USER_OFFERED' && (
+                    <div className="mt-4 pt-4 border-t border-borderColor">
+                      <p className="text-sm font-medium text-gray-700 mb-2">Negotiation Action</p>
+                      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                        <input
+                          type="number"
+                          placeholder="Counter price"
+                          value={counterPriceById[booking._id] || ''}
+                          onChange={(e) =>
+                            setCounterPriceById((prev) => ({ ...prev, [booking._id]: e.target.value }))
+                          }
+                          className="border border-borderColor rounded-lg px-3 py-2 text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => acceptBargain(booking._id)}
+                            className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => counterBargain(booking._id)}
+                            className="bg-amber-500 text-white px-3 py-2 rounded-lg text-sm"
+                          >
+                            Counter
+                          </button>
+                          <button
+                            onClick={() => rejectBargain(booking._id)}
+                            className="bg-red-500 text-white px-3 py-2 rounded-lg text-sm"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </div>
+        <span className="admin-section-blur admin-section-blur--bottom" aria-hidden="true" />
       </div>
     </div>
   );

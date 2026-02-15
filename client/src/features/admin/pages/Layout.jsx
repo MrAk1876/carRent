@@ -1,22 +1,74 @@
-import React from 'react'
-import NavbarOwner from '../components/NavbarOwner'
-import Sidebar from '../components/Sidebar'
-import { Outlet } from 'react-router-dom'
+import React, { useEffect, useState } from 'react';
+import NavbarOwner from '../components/NavbarOwner';
+import Sidebar from '../components/Sidebar';
+import { Outlet, useLocation } from 'react-router-dom';
+import '../components/SectionScroll.css';
+
+const SECTION_SCROLL_ROUTES = new Set([
+  '/owner',
+  '/owner/manage-cars',
+  '/owner/manage-bookings',
+  '/owner/bookings',
+  '/owner/users',
+  '/owner/offers',
+  '/owner/reviews',
+]);
 
 const Layout = () => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const location = useLocation();
+  const useSectionScroll = SECTION_SCROLL_ROUTES.has(location.pathname);
+
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', onResize);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth >= 1024) {
+      document.body.style.overflow = '';
+      return;
+    }
+
+    document.body.style.overflow = isSidebarOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isSidebarOpen]);
+
   return (
-    <div className='flex h-dvh flex-col overflow-hidden bg-slate-50/40'>
-      <div className='shrink-0'>
-        <NavbarOwner />
+    <div className="flex h-dvh flex-col overflow-hidden bg-slate-50/40">
+      <div className="shrink-0">
+        <NavbarOwner onMenuClick={() => setIsSidebarOpen(true)} isSidebarOpen={isSidebarOpen} />
       </div>
-      <div className='flex min-h-0 flex-1'>
-        <Sidebar />
-        <main className='min-w-0 flex-1 overflow-y-auto overflow-x-hidden'>
+      <div className="relative flex min-h-0 flex-1">
+        <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+        <main className={`min-w-0 flex-1 overflow-x-hidden ${useSectionScroll ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           <Outlet />
         </main>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default Layout
+export default Layout;

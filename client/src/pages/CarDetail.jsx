@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { assets } from '../assets/assets';
-import { isLoggedIn } from '../utils/auth';
+import { isAdmin, isLoggedIn } from '../utils/auth';
 import MakeOfferForm from '../features/offers/components/MakeOfferForm';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import ScrollReveal from '../components/ui/ScrollReveal';
@@ -95,9 +95,10 @@ const CarDetailSkeleton = () => (
 );
 
 const CarDetail = () => {
-  const currency = import.meta.env.VITE_CURRENCY || '₹';
+  const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const { id } = useParams();
   const navigate = useNavigate();
+  const admin = isAdmin();
 
   const [car, setCar] = useState(null);
   const [reviews, setReviews] = useState([]);
@@ -162,6 +163,11 @@ const CarDetail = () => {
   const handleBooking = async (event) => {
     event.preventDefault();
     setBookingError('');
+
+    if (admin) {
+      setBookingError('Admin can view cars but cannot create rental bookings.');
+      return;
+    }
 
     if (!fromDate || !toDate) {
       setBookingError('Please select pickup and return dates.');
@@ -375,6 +381,12 @@ const CarDetail = () => {
               <p className="text-xs text-gray-400 mt-1">Refundable if admin rejects the booking request.</p>
             </div>
 
+            {admin ? (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                Admin view mode: booking and offer actions are disabled.
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3">
               <div>
                 <label className="text-sm text-gray-600">Pickup Date</label>
@@ -388,6 +400,7 @@ const CarDetail = () => {
                     if (toDate && nextFromDate > toDate) setToDate(nextFromDate);
                   }}
                   className="border border-borderColor px-3 py-2 rounded-lg w-full mt-1"
+                  disabled={admin}
                   required
                 />
               </div>
@@ -399,7 +412,7 @@ const CarDetail = () => {
                   value={toDate}
                   min={fromDate || new Date().toISOString().split('T')[0]}
                   onChange={(event) => setToDate(event.target.value)}
-                  disabled={!fromDate}
+                  disabled={admin || !fromDate}
                   className="border border-borderColor px-3 py-2 rounded-lg w-full mt-1"
                   required
                 />
@@ -408,15 +421,31 @@ const CarDetail = () => {
 
             {bookingError ? <p className="text-red-500 text-sm">{bookingError}</p> : null}
 
-            <MakeOfferForm
-              carId={car._id}
-              fromDate={fromDate}
-              toDate={toDate}
-              originalPrice={totalAmount}
-              onSuccess={() => {
-                setOfferSuccessMsg('Offer sent successfully. Track it in My Bookings.');
-              }}
-            />
+            {!admin ? (
+              <MakeOfferForm
+                carId={car._id}
+                fromDate={fromDate}
+                toDate={toDate}
+                originalPrice={totalAmount}
+                onSuccess={() => {
+                  setOfferSuccessMsg('Offer sent successfully. Track it in My Bookings.');
+                }}
+              />
+            ) : (
+              <div className="border border-dashed border-borderColor rounded-lg p-4 bg-slate-50/80">
+                <p className="font-medium text-gray-700">Make a Negotiation Offer</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Admin can review offers, but cannot create renter offers.
+                </p>
+                <button
+                  type="button"
+                  disabled
+                  className="mt-3 px-4 py-2 rounded-lg text-white bg-gray-400 cursor-not-allowed"
+                >
+                  Offer Disabled For Admin
+                </button>
+              </div>
+            )}
 
             {offerSuccessMsg ? <p className="text-green-600 text-xs">{offerSuccessMsg}</p> : null}
 
@@ -437,9 +466,9 @@ const CarDetail = () => {
 
             <button
               type="submit"
-              disabled={bookingLoading}
+              disabled={bookingLoading || admin}
               className={`w-full py-3 text-white rounded-lg font-medium inline-flex items-center justify-center gap-2 ${
-                bookingLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary hover:bg-primary-dull'
+                bookingLoading || admin ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary hover:bg-primary-dull'
               }`}
             >
               {bookingLoading ? (
@@ -448,7 +477,7 @@ const CarDetail = () => {
                   Booking...
                 </>
               ) : (
-                'Book Now'
+                admin ? 'Booking Disabled For Admin' : 'Book Now'
               )}
             </button>
           </form>
@@ -459,3 +488,4 @@ const CarDetail = () => {
 };
 
 export default CarDetail;
+

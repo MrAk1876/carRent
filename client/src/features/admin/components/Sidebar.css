@@ -8,15 +8,22 @@
   --sidebar-accent-strong: #1246b8;
   --sidebar-accent-soft: rgba(37, 99, 235, 0.14);
   position: relative;
-  width: min(100%, 284px);
+  width: 284px;
+  min-width: 284px;
   height: 100%;
   max-height: 100%;
   border-right: 1px solid var(--sidebar-border);
   background: var(--sidebar-bg);
   padding: 18px 14px 16px;
   color: var(--sidebar-text);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   flex-shrink: 0;
+}
+
+.owner-sidebar__backdrop {
+  display: none;
 }
 
 .owner-sidebar__glow {
@@ -238,54 +245,51 @@
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
+  .owner-sidebar__backdrop {
+    display: block;
+    position: fixed;
+    z-index: 40;
+    top: 57px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    transition: opacity 220ms ease;
+  }
+
+  .owner-sidebar__backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
   .owner-sidebar {
-    width: 88px;
-    height: 100%;
-    max-height: 100%;
-    padding: 14px 10px;
+    position: fixed;
+    z-index: 50;
+    top: 57px;
+    left: 0;
+    width: min(84vw, 300px);
+    min-width: min(84vw, 300px);
+    height: calc(100dvh - 57px);
+    max-height: calc(100dvh - 57px);
+    border-right: 1px solid var(--sidebar-border);
+    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
+    padding: 14px 12px;
+    transform: translateX(-105%);
+    transition: transform 230ms ease;
   }
 
-  .owner-sidebar__profile {
-    grid-template-columns: 1fr;
-    justify-items: center;
-    padding: 10px 8px;
-    gap: 0;
-  }
-
-  .owner-sidebar__meta,
-  .owner-sidebar__group-title,
-  .owner-sidebar__text,
-  .owner-sidebar__edit {
-    display: none;
-  }
-
-  .owner-sidebar__avatar-shell {
-    width: 50px;
-    height: 50px;
-  }
-
-  .owner-sidebar__avatar-image {
-    width: 42px;
-    height: 42px;
-  }
-
-  .owner-sidebar__nav {
-    margin-top: 12px;
-  }
-
-  .owner-sidebar__item {
-    justify-content: center;
-    padding: 10px;
-    border-radius: 11px;
-  }
-
-  .owner-sidebar__icon-wrap {
-    margin-right: 0;
+  .owner-sidebar.is-open {
+    transform: translateX(0);
   }
 
   .owner-sidebar__indicator {
-    right: -10px;
+    right: -12px;
     width: 3px;
     height: 22px;
   }

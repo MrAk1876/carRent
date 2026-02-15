@@ -73,6 +73,7 @@ export const assets = {
   listIconColored,
   cautionIcon,
   cautionIconColored,
+  booking_colored_icon,
   calendar_icon_colored,
   location_icon_colored,
   arrow_icon,
@@ -104,6 +105,7 @@ export const menuLinks = [
 
 export const ownerMenuLinks = [
   { name: 'Dashboard', path: '/owner', icon: dashboardIcon, coloredIcon: dashboardIconColored },
+  { name: 'Cars Page', path: '/cars', icon: carIcon, coloredIcon: carIconColored },
   {
     name: 'Profile',
     path: '/owner/profile',

@@ -12,6 +12,10 @@ const toDateOnly = (value) => {
 
 exports.createRequest = async (req, res) => {
   try {
+    if (req.user?.role === 'admin') {
+      return res.status(403).json({ message: 'Admin can view cars but cannot create rental bookings' });
+    }
+
     const { carId, fromDate, toDate, bargainPrice } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(carId)) {
@@ -85,6 +89,10 @@ exports.createRequest = async (req, res) => {
 
 exports.payAdvance = async (req, res) => {
   try {
+    if (req.user?.role === 'admin') {
+      return res.status(403).json({ message: 'Admin cannot pay advance for rental bookings' });
+    }
+
     const { id } = req.params;
     const paymentMethod = String(req.body.paymentMethod || '').trim().toUpperCase();
     const paymentReference = String(req.body.paymentReference || '').trim();

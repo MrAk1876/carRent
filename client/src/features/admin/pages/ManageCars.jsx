@@ -5,7 +5,7 @@ import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
 
 const ManageCars = () => {
-  const currency = import.meta.env.VITE_CURRENCY || '₹';
+  const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const navigate = useNavigate();
   const [cars, setCars] = useState([]);
   const [search, setSearch] = useState('');
@@ -100,7 +100,7 @@ const ManageCars = () => {
   }, [cars]);
 
   return (
-    <div className="px-4 pt-10 md:px-10 pb-10 w-full">
+    <div className="admin-section-page px-4 pt-6 md:pt-10 md:px-10 pb-8 md:pb-10 w-full">
       <Title title="Manage Cars" subTitle="Control listing visibility, pricing, and updates for all vehicles from one place." />
 
       {errorMsg ? <p className="mt-4 text-sm text-red-500">{errorMsg}</p> : null}
@@ -143,86 +143,92 @@ const ManageCars = () => {
         </div>
       </div>
 
-      <div className="max-w-6xl w-full rounded-2xl overflow-hidden border border-borderColor bg-white shadow-sm mt-4">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-245 border-collapse text-left text-sm text-gray-600">
-            <thead className="bg-light text-gray-700">
-              <tr>
-                <th className="p-3 font-medium">Car</th>
-                <th className="p-3 font-medium">Category</th>
-                <th className="p-3 font-medium">Price</th>
-                <th className="p-3 font-medium">Status</th>
-                <th className="p-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr className="border-t border-borderColor">
-                  <td className="p-8 text-center text-gray-500" colSpan={5}>
-                    Loading cars...
-                  </td>
-                </tr>
-              )}
-
-              {!loading && filteredCars.length === 0 && (
-                <tr className="border-t border-borderColor">
-                  <td className="p-8 text-center text-gray-500" colSpan={5}>
-                    No cars found for selected filters.
-                  </td>
-                </tr>
-              )}
-
-              {!loading &&
-                filteredCars.map(car => (
-                  <tr key={car._id} className="border-t border-borderColor">
-                    <td className="p-3">
-                      <div className="flex items-center gap-3">
-                        <img src={car.image} alt="car" className="w-16 h-12 object-cover rounded-md border border-borderColor" />
-                        <div>
-                          <p className="font-medium text-gray-800">
-                            {car.brand} {car.model}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {car.seating_capacity} seats • {car.transmission} • {car.location}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-3 text-gray-700">{car.category || 'N/A'}</td>
-                    <td className="p-3 font-medium text-gray-800">
-                      {currency}
-                      {car.pricePerDay}
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${car.isAvailable ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{car.isAvailable ? 'Available' : 'Unavailable'}</span>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button onClick={() => navigate(`/owner/add-car?edit=${car._id}`)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`} title="Edit">
-                          <span className={actionIconWrapClass}>
-                            <img src={assets.edit_icon} alt="edit" className={actionIconClass} />
-                          </span>
-                          <span>Edit</span>
-                        </button>
-                        <button onClick={() => toggleCar(car._id)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : car.isAvailable ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`} title={car.isAvailable ? 'Mark unavailable' : 'Mark available'}>
-                          <span className={actionIconWrapClass}>
-                            <img src={car.isAvailable ? assets.eye_close_icon : assets.eye_icon} alt="toggle" className={actionIconClass} />
-                          </span>
-                          <span>{car.isAvailable ? 'Hide' : 'Show'}</span>
-                        </button>
-                        <button onClick={() => deleteCar(car._id)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'}`} title="Delete">
-                          <span className={actionIconWrapClass}>
-                            <img src={assets.delete_icon} alt="delete" className={actionIconClass} />
-                          </span>
-                          <span>Delete</span>
-                        </button>
-                      </div>
-                    </td>
+      <div className="admin-section-scroll-shell mt-4">
+        <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
+        <div className="admin-section-scroll admin-section-scroll--free">
+          <div className="max-w-6xl w-full rounded-2xl overflow-hidden border border-borderColor bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-245 border-collapse text-left text-sm text-gray-600">
+                <thead className="bg-light text-gray-700">
+                  <tr>
+                    <th className="p-3 font-medium">Car</th>
+                    <th className="p-3 font-medium">Category</th>
+                    <th className="p-3 font-medium">Price</th>
+                    <th className="p-3 font-medium">Status</th>
+                    <th className="p-3 font-medium">Actions</th>
                   </tr>
-                ))}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {loading && (
+                    <tr className="border-t border-borderColor">
+                      <td className="p-8 text-center text-gray-500" colSpan={5}>
+                        Loading cars...
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loading && filteredCars.length === 0 && (
+                    <tr className="border-t border-borderColor">
+                      <td className="p-8 text-center text-gray-500" colSpan={5}>
+                        No cars found for selected filters.
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loading &&
+                    filteredCars.map(car => (
+                      <tr key={car._id} className="border-t border-borderColor">
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            <img src={car.image} alt="car" className="w-16 h-12 object-cover rounded-md border border-borderColor" />
+                            <div>
+                              <p className="font-medium text-gray-800">
+                                {car.brand} {car.model}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {car.seating_capacity} seats | {car.transmission} | {car.location}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3 text-gray-700">{car.category || 'N/A'}</td>
+                        <td className="p-3 font-medium text-gray-800">
+                          {currency}
+                          {car.pricePerDay}
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${car.isAvailable ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{car.isAvailable ? 'Available' : 'Unavailable'}</span>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button onClick={() => navigate(`/owner/add-car?edit=${car._id}`)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`} title="Edit">
+                              <span className={actionIconWrapClass}>
+                                <img src={assets.edit_icon} alt="edit" className={actionIconClass} />
+                              </span>
+                              <span>Edit</span>
+                            </button>
+                            <button onClick={() => toggleCar(car._id)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : car.isAvailable ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`} title={car.isAvailable ? 'Mark unavailable' : 'Mark available'}>
+                              <span className={actionIconWrapClass}>
+                                <img src={car.isAvailable ? assets.eye_close_icon : assets.eye_icon} alt="toggle" className={actionIconClass} />
+                              </span>
+                              <span>{car.isAvailable ? 'Hide' : 'Show'}</span>
+                            </button>
+                            <button onClick={() => deleteCar(car._id)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'}`} title="Delete">
+                              <span className={actionIconWrapClass}>
+                                <img src={assets.delete_icon} alt="delete" className={actionIconClass} />
+                              </span>
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
+        <span className="admin-section-blur admin-section-blur--bottom" aria-hidden="true" />
       </div>
     </div>
   );

@@ -36,6 +36,8 @@ const App = () => {
   const [showLogin, setShowLogin] = useState(false);
   const location = useLocation();
   const isOwnerPath = location.pathname.startsWith('/owner');
+  const loggedIn = isLoggedIn();
+  const admin = isAdmin();
 
   return (
     <>
@@ -56,16 +58,25 @@ const App = () => {
             <Route path="/" element={<Home />} />
             <Route path="/car-details/:id" element={<CarDetail />} />
             <Route path="/cars" element={<Cars />} />
-            <Route path="/my-bookings" element={isLoggedIn() ? <MyBookings /> : <Navigate to="/" />} />
-            <Route path="/my-profile" element={isLoggedIn() ? <UserProfile /> : <Navigate to="/" />} />
-            <Route path="/complete-profile" element={isLoggedIn() ? <CompleteProfile /> : <Navigate to="/" />} />
+            <Route
+              path="/my-bookings"
+              element={loggedIn && !admin ? <MyBookings /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/my-profile"
+              element={loggedIn && !admin ? <UserProfile /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/complete-profile"
+              element={loggedIn && !admin ? <CompleteProfile /> : <Navigate to="/" replace />}
+            />
             <Route path="/help-center" element={<StaticInfoPage />} />
             <Route path="/terms" element={<StaticInfoPage />} />
             <Route path="/privacy" element={<StaticInfoPage />} />
             <Route path="/insurance" element={<StaticInfoPage />} />
             <Route path="/cookies" element={<StaticInfoPage />} />
 
-            <Route path="/owner" element={isAdmin() ? <Layout /> : <Navigate to="/" />}>
+            <Route path="/owner" element={admin ? <Layout /> : <Navigate to="/" replace />}>
               <Route index element={<Dashboard />} />
               <Route path="add-car" element={<AddCar />} />
               <Route path="manage-cars" element={<ManageCars />} />

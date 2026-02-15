@@ -4,7 +4,7 @@ import AdminOfferList from '../../offers/components/AdminOfferList';
 
 const ManageOffers = () => {
   return (
-    <div className="px-4 pt-10 md:px-10 pb-10 w-full">
+    <div className="admin-section-page px-4 pt-6 md:pt-10 md:px-10 pb-8 md:pb-10 w-full">
       <Title
         title="Manage Offers"
         subTitle="Review negotiation offers, counter prices, accept, reject, and auto-expire after the limit."
@@ -18,7 +18,7 @@ const ManageOffers = () => {
         </p>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 min-h-0 flex-1">
         <AdminOfferList />
       </div>
     </div>

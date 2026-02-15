@@ -103,6 +103,10 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
 
 exports.createOffer = async (req, res) => {
   try {
+    if (req.user?.role === 'admin') {
+      return res.status(403).json({ message: 'Admin can view cars but cannot create rental offers' });
+    }
+
     const { carId, offeredPrice, message, fromDate, toDate } = req.body;
     const car = await Car.findById(carId);
 

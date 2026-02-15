@@ -1,15 +1,20 @@
 import React, { useState } from 'react';
 import API, { getErrorMessage } from '../../../api';
-import { isLoggedIn } from '../../../utils/auth';
+import { isAdmin, isLoggedIn } from '../../../utils/auth';
 
 const MakeOfferForm = ({ carId, fromDate, toDate, originalPrice = 0, onSuccess }) => {
-  const currency = import.meta.env.VITE_CURRENCY || '₹';
+  const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const [offeredPrice, setOfferedPrice] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const createOffer = async () => {
+    if (isAdmin()) {
+      setErrorMsg('Admin can view cars but cannot create rental offers');
+      return;
+    }
+
     if (!isLoggedIn()) {
       setErrorMsg('Please log in to create an offer');
       return;
@@ -90,3 +95,4 @@ const MakeOfferForm = ({ carId, fromDate, toDate, originalPrice = 0, onSuccess }
 };
 
 export default MakeOfferForm;
+

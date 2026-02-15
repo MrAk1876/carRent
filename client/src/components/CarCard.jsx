@@ -1,13 +1,16 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { assets } from '../assets/assets';
+import { isAdmin } from '../utils/auth';
 
 const CarCard = ({ car }) => {
-  const currency = import.meta.env.VITE_CURRENCY || '₹';
+  const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const navigate = useNavigate();
+  const admin = isAdmin();
+  const canOpenDetails = admin || car.isAvailable;
 
   const openDetails = () => {
-    if (!car.isAvailable) return;
+    if (!canOpenDetails) return;
     navigate(`/car-details/${car._id}`);
     window.scrollTo(0, 0);
   };
@@ -16,7 +19,7 @@ const CarCard = ({ car }) => {
     <div
       onClick={openDetails}
       className={`group rounded-2xl overflow-hidden border border-borderColor bg-white transition-all duration-300 shadow-sm ${
-        car.isAvailable
+        canOpenDetails
           ? 'hover:-translate-y-1 hover:shadow-xl cursor-pointer'
           : 'opacity-65 cursor-not-allowed'
       }`}
@@ -85,3 +88,4 @@ const CarCard = ({ car }) => {
 };
 
 export default CarCard;
+

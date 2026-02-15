@@ -25,6 +25,9 @@ const Navbar = ({ setShowLogin }) => {
   const loggedIn = isLoggedIn();
   const admin = isAdmin();
   const onHomePage = location.pathname === '/';
+  const visibleMenuLinks = admin
+    ? menuLinks.filter((link) => link.path === '/' || link.path === '/cars')
+    : menuLinks;
 
   useEffect(() => {
     setOpen(false);
@@ -99,7 +102,7 @@ const Navbar = ({ setShowLogin }) => {
         </Link>
 
         <nav className="hidden md:flex items-center gap-1 lg:gap-2">
-          {menuLinks.map((link) => (
+          {visibleMenuLinks.map((link) => (
             <NavLink
               key={link.path}
               to={link.path}
@@ -111,21 +114,23 @@ const Navbar = ({ setShowLogin }) => {
           ))}
         </nav>
 
-        <form
-          onSubmit={submitSearch}
-          className="hidden lg:flex items-center gap-2 ml-auto border border-borderColor rounded-full px-3 py-1.5 bg-white min-w-55 max-w-75 w-full"
-        >
-          <input
-            type="text"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder="Search cars..."
-            className="w-full text-sm bg-transparent outline-none placeholder:text-slate-400"
-          />
-          <button type="submit" className="shrink-0 opacity-70 hover:opacity-100" aria-label="Search cars">
-            <img src={assets.search_icon} alt="" className="w-4 h-4" />
-          </button>
-        </form>
+        {!admin && (
+          <form
+            onSubmit={submitSearch}
+            className="hidden lg:flex items-center gap-2 ml-auto border border-borderColor rounded-full px-3 py-1.5 bg-white min-w-55 max-w-75 w-full"
+          >
+            <input
+              type="text"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="Search cars..."
+              className="w-full text-sm bg-transparent outline-none placeholder:text-slate-400"
+            />
+            <button type="submit" className="shrink-0 opacity-70 hover:opacity-100" aria-label="Search cars">
+              <img src={assets.search_icon} alt="" className="w-4 h-4" />
+            </button>
+          </form>
+        )}
 
         <div className="hidden md:flex items-center gap-2 lg:gap-3">
           {admin && (
@@ -190,21 +195,23 @@ const Navbar = ({ setShowLogin }) => {
         } ${open ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-2 opacity-0 pointer-events-none'}`}
       >
         <div className="max-w-330 mx-auto h-full overflow-y-auto px-4 py-4">
-          <form onSubmit={submitSearch} className="flex items-center gap-2 border border-borderColor rounded-full px-3 py-2 bg-white">
-            <input
-              type="text"
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Search cars..."
-              className="w-full text-sm bg-transparent outline-none placeholder:text-slate-400"
-            />
-            <button type="submit" className="shrink-0 opacity-70 hover:opacity-100" aria-label="Search cars">
-              <img src={assets.search_icon} alt="" className="w-4 h-4" />
-            </button>
-          </form>
+          {!admin && (
+            <form onSubmit={submitSearch} className="flex items-center gap-2 border border-borderColor rounded-full px-3 py-2 bg-white">
+              <input
+                type="text"
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Search cars..."
+                className="w-full text-sm bg-transparent outline-none placeholder:text-slate-400"
+              />
+              <button type="submit" className="shrink-0 opacity-70 hover:opacity-100" aria-label="Search cars">
+                <img src={assets.search_icon} alt="" className="w-4 h-4" />
+              </button>
+            </form>
+          )}
 
           <nav className="mt-4 flex flex-col gap-1.5">
-            {menuLinks.map((link) => (
+            {visibleMenuLinks.map((link) => (
               <NavLink
                 key={link.path}
                 to={link.path}

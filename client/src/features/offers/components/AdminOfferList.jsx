@@ -28,7 +28,7 @@ const formatStatus = (status) => {
 };
 
 const AdminOfferList = () => {
-  const currency = import.meta.env.VITE_CURRENCY || '₹';
+  const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const [offers, setOffers] = useState([]);
   const [counterPriceById, setCounterPriceById] = useState({});
   const [messageById, setMessageById] = useState({});
@@ -121,7 +121,7 @@ const AdminOfferList = () => {
   };
 
   return (
-    <div className="space-y-4 max-w-6xl">
+    <div className="h-full min-h-0 max-w-6xl flex flex-col gap-4">
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="rounded-xl border border-borderColor bg-white p-3">
           <p className="text-xs text-gray-500 uppercase tracking-wide">Total</p>
@@ -190,199 +190,205 @@ const AdminOfferList = () => {
         <p className="rounded-lg border border-red-200 bg-red-50 text-red-600 text-sm px-3 py-2">{errorMsg}</p>
       ) : null}
 
-      {filteredOffers.length === 0 ? (
-        <div className="rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
-          No offers found for selected filters.
-        </div>
-      ) : null}
-
-      {filteredOffers.map((offer) => {
-        const userName = `${offer.user?.firstName || ''} ${offer.user?.lastName || ''}`.trim() || 'Unknown User';
-        const status = String(offer.status || '').toLowerCase();
-        const attempts = Number(offer.offerCount || 0);
-        const history = getUserOfferHistory(offer);
-        const isBusy = loadingId === offer._id;
-
-        return (
-          <div key={offer._id} className="rounded-2xl border border-borderColor bg-white p-4 md:p-5 shadow-sm">
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-              <div>
-                <h3 className="text-xl font-semibold text-gray-800">
-                  {offer.car?.brand || 'Car'} {offer.car?.model || ''}
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  User: <span className="font-medium">{userName}</span> ({offer.user?.email || 'N/A'})
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {offer.fromDate?.split('T')[0]} to {offer.toDate?.split('T')[0]}
-                </p>
-              </div>
-
-              <span className={`px-3 py-1 rounded-full text-xs font-medium border w-max ${badgeClass(status)}`}>
-                {formatStatus(status)}
-              </span>
+      <div className="admin-section-scroll-shell">
+        <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
+        <div className="admin-section-scroll">
+          {filteredOffers.length === 0 ? (
+            <div className="rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
+              No offers found for selected filters.
             </div>
+          ) : null}
 
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-              <div className="rounded-lg bg-light p-3">
-                <p className="text-xs text-gray-500">Original</p>
-                <p className="font-semibold text-gray-800">
-                  {currency}
-                  {offer.originalPrice}
-                </p>
-              </div>
-              <div className="rounded-lg bg-light p-3">
-                <p className="text-xs text-gray-500">Offered</p>
-                <p className="font-semibold text-gray-800">
-                  {currency}
-                  {offer.offeredPrice}
-                </p>
-              </div>
-              <div className="rounded-lg bg-light p-3">
-                <p className="text-xs text-gray-500">Counter</p>
-                <p className="font-semibold text-gray-800">
-                  {currency}
-                  {offer.counterPrice || 0}
-                </p>
-              </div>
-              <div className="rounded-lg bg-light p-3">
-                <p className="text-xs text-gray-500">Attempts</p>
-                <p className="font-semibold text-gray-800">{attempts}/3</p>
-              </div>
-            </div>
+          {filteredOffers.map((offer) => {
+            const userName = `${offer.user?.firstName || ''} ${offer.user?.lastName || ''}`.trim() || 'Unknown User';
+            const status = String(offer.status || '').toLowerCase();
+            const attempts = Number(offer.offerCount || 0);
+            const history = getUserOfferHistory(offer);
+            const isBusy = loadingId === offer._id;
 
-            {history.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                {history.map((amount, index) => (
-                  <span
-                    key={`${offer._id}-history-${index}`}
-                    className="px-2.5 py-1 rounded-full border border-borderColor bg-white text-gray-600"
-                  >
-                    Round {index + 1}: {currency}
-                    {amount}
+            return (
+              <div key={offer._id} className="snap-start rounded-2xl border border-borderColor bg-white p-4 md:p-5 shadow-sm mb-4">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-800">
+                      {offer.car?.brand || 'Car'} {offer.car?.model || ''}
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      User: <span className="font-medium">{userName}</span> ({offer.user?.email || 'N/A'})
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {offer.fromDate?.split('T')[0]} to {offer.toDate?.split('T')[0]}
+                    </p>
+                  </div>
+
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium border w-max ${badgeClass(status)}`}>
+                    {formatStatus(status)}
                   </span>
-                ))}
-              </div>
-            ) : null}
-
-            {offer.message ? (
-              <p className="mt-3 text-sm text-gray-600 border border-borderColor rounded-lg px-3 py-2 bg-light/40">
-                <span className="font-medium text-gray-700">Note:</span> {offer.message}
-              </p>
-            ) : null}
-
-            {status === 'pending' ? (
-              <div className="mt-4 pt-4 border-t border-borderColor space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <input
-                    type="number"
-                    value={counterPriceById[offer._id] || ''}
-                    onChange={(event) =>
-                      setCounterPriceById((prev) => ({ ...prev, [offer._id]: event.target.value }))
-                    }
-                    placeholder="Counter price"
-                    className="border border-borderColor rounded-lg px-3 py-2 text-sm"
-                  />
-                  <input
-                    type="text"
-                    value={messageById[offer._id] || ''}
-                    onChange={(event) =>
-                      setMessageById((prev) => ({ ...prev, [offer._id]: event.target.value }))
-                    }
-                    placeholder="Optional counter note"
-                    className="border border-borderColor rounded-lg px-3 py-2 text-sm"
-                  />
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    disabled={isBusy}
-                    onClick={() => doAction(offer._id, 'accept')}
-                    className={`px-3 py-2 rounded-lg text-sm text-white ${
-                      isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600'
-                    }`}
-                  >
-                    Accept
-                  </button>
-                  <button
-                    disabled={isBusy}
-                    onClick={() => doAction(offer._id, 'counter')}
-                    className={`px-3 py-2 rounded-lg text-sm text-white ${
-                      isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-amber-500'
-                    }`}
-                  >
-                    Counter
-                  </button>
-                  <button
-                    disabled={isBusy}
-                    onClick={() => doAction(offer._id, 'reject')}
-                    className={`px-3 py-2 rounded-lg text-sm text-white ${
-                      isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500'
-                    }`}
-                  >
-                    Reject
-                  </button>
-                  <button
-                    disabled={isBusy}
-                    onClick={() => {
-                      if (!window.confirm('Delete this offer?')) return;
-                      doAction(offer._id, 'delete');
-                    }}
-                    className={`px-3 py-2 rounded-lg text-sm text-white ${
-                      isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-slate-800'
-                    }`}
-                  >
-                    Delete
-                  </button>
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div className="rounded-lg bg-light p-3">
+                    <p className="text-xs text-gray-500">Original</p>
+                    <p className="font-semibold text-gray-800">
+                      {currency}
+                      {offer.originalPrice}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-light p-3">
+                    <p className="text-xs text-gray-500">Offered</p>
+                    <p className="font-semibold text-gray-800">
+                      {currency}
+                      {offer.offeredPrice}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-light p-3">
+                    <p className="text-xs text-gray-500">Counter</p>
+                    <p className="font-semibold text-gray-800">
+                      {currency}
+                      {offer.counterPrice || 0}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-light p-3">
+                    <p className="text-xs text-gray-500">Attempts</p>
+                    <p className="font-semibold text-gray-800">{attempts}/3</p>
+                  </div>
                 </div>
-              </div>
-            ) : null}
 
-            {status === 'countered' ? (
-              <div className="mt-4 pt-4 border-t border-borderColor flex flex-wrap gap-2">
-                <button
-                  disabled={isBusy}
-                  onClick={() => doAction(offer._id, 'reject')}
-                  className={`px-3 py-2 rounded-lg text-sm text-white ${
-                    isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500'
-                  }`}
-                >
-                  Close (Reject)
-                </button>
-                <button
-                  disabled={isBusy}
-                  onClick={() => {
-                    if (!window.confirm('Delete this offer?')) return;
-                    doAction(offer._id, 'delete');
-                  }}
-                  className={`px-3 py-2 rounded-lg text-sm text-white ${
-                    isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-slate-800'
-                  }`}
-                >
-                  Delete
-                </button>
-              </div>
-            ) : null}
+                {history.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    {history.map((amount, index) => (
+                      <span
+                        key={`${offer._id}-history-${index}`}
+                        className="px-2.5 py-1 rounded-full border border-borderColor bg-white text-gray-600"
+                      >
+                        Round {index + 1}: {currency}
+                        {amount}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
 
-            {!['pending', 'countered'].includes(status) ? (
-              <div className="mt-4 pt-4 border-t border-borderColor">
-                <button
-                  disabled={isBusy}
-                  onClick={() => {
-                    if (!window.confirm('Delete this offer?')) return;
-                    doAction(offer._id, 'delete');
-                  }}
-                  className={`px-3 py-2 rounded-lg text-sm text-white ${
-                    isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-slate-800'
-                  }`}
-                >
-                  Delete
-                </button>
+                {offer.message ? (
+                  <p className="mt-3 text-sm text-gray-600 border border-borderColor rounded-lg px-3 py-2 bg-light/40">
+                    <span className="font-medium text-gray-700">Note:</span> {offer.message}
+                  </p>
+                ) : null}
+
+                {status === 'pending' ? (
+                  <div className="mt-4 pt-4 border-t border-borderColor space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <input
+                        type="number"
+                        value={counterPriceById[offer._id] || ''}
+                        onChange={(event) =>
+                          setCounterPriceById((prev) => ({ ...prev, [offer._id]: event.target.value }))
+                        }
+                        placeholder="Counter price"
+                        className="border border-borderColor rounded-lg px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={messageById[offer._id] || ''}
+                        onChange={(event) =>
+                          setMessageById((prev) => ({ ...prev, [offer._id]: event.target.value }))
+                        }
+                        placeholder="Optional counter note"
+                        className="border border-borderColor rounded-lg px-3 py-2 text-sm"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        disabled={isBusy}
+                        onClick={() => doAction(offer._id, 'accept')}
+                        className={`px-3 py-2 rounded-lg text-sm text-white ${
+                          isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600'
+                        }`}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        disabled={isBusy}
+                        onClick={() => doAction(offer._id, 'counter')}
+                        className={`px-3 py-2 rounded-lg text-sm text-white ${
+                          isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-amber-500'
+                        }`}
+                      >
+                        Counter
+                      </button>
+                      <button
+                        disabled={isBusy}
+                        onClick={() => doAction(offer._id, 'reject')}
+                        className={`px-3 py-2 rounded-lg text-sm text-white ${
+                          isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500'
+                        }`}
+                      >
+                        Reject
+                      </button>
+                      <button
+                        disabled={isBusy}
+                        onClick={() => {
+                          if (!window.confirm('Delete this offer?')) return;
+                          doAction(offer._id, 'delete');
+                        }}
+                        className={`px-3 py-2 rounded-lg text-sm text-white ${
+                          isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-slate-800'
+                        }`}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {status === 'countered' ? (
+                  <div className="mt-4 pt-4 border-t border-borderColor flex flex-wrap gap-2">
+                    <button
+                      disabled={isBusy}
+                      onClick={() => doAction(offer._id, 'reject')}
+                      className={`px-3 py-2 rounded-lg text-sm text-white ${
+                        isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500'
+                      }`}
+                    >
+                      Close (Reject)
+                    </button>
+                    <button
+                      disabled={isBusy}
+                      onClick={() => {
+                        if (!window.confirm('Delete this offer?')) return;
+                        doAction(offer._id, 'delete');
+                      }}
+                      className={`px-3 py-2 rounded-lg text-sm text-white ${
+                        isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-slate-800'
+                      }`}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
+
+                {!['pending', 'countered'].includes(status) ? (
+                  <div className="mt-4 pt-4 border-t border-borderColor">
+                    <button
+                      disabled={isBusy}
+                      onClick={() => {
+                        if (!window.confirm('Delete this offer?')) return;
+                        doAction(offer._id, 'delete');
+                      }}
+                      className={`px-3 py-2 rounded-lg text-sm text-white ${
+                        isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-slate-800'
+                      }`}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+        <span className="admin-section-blur admin-section-blur--bottom" aria-hidden="true" />
+      </div>
     </div>
   );
 };

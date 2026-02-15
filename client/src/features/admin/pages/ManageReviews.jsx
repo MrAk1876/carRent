@@ -114,7 +114,7 @@ const ManageReviews = () => {
   };
 
   return (
-    <div className="px-4 pt-10 md:px-10 pb-10 w-full">
+    <div className="admin-section-page px-4 pt-6 md:pt-10 md:px-10 pb-8 md:pb-10 w-full">
       <Title title="Manage Reviews" subTitle="View, edit, and moderate all customer reviews from one place." />
 
       <div className="mt-6 max-w-6xl rounded-2xl border border-borderColor bg-linear-to-r from-primary/5 via-white to-cyan-50 p-5 md:p-6">
@@ -166,116 +166,122 @@ const ManageReviews = () => {
         </p>
       ) : null}
 
-      <div className="mt-4 max-w-6xl space-y-3">
-        {loading ? (
-          <div className="rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
-            Loading reviews...
-          </div>
-        ) : null}
-
-        {!loading && filteredReviews.length === 0 ? (
-          <div className="rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
-            No reviews found.
-          </div>
-        ) : null}
-
-        {!loading &&
-          filteredReviews.map((review) => {
-            const isEditing = editId === review._id;
-            const isBusy = loadingId === review._id;
-            const fullName = `${review.user?.firstName || ''} ${review.user?.lastName || ''}`.trim() || 'User';
-            const initials = fullName
-              .split(' ')
-              .filter(Boolean)
-              .slice(0, 2)
-              .map((part) => part[0].toUpperCase())
-              .join('');
-            const ratingValue = isEditing ? Number(draft.rating || 5) : Number(review.rating || 0);
-
-            return (
-              <div key={review._id} className="rounded-xl border border-borderColor bg-white p-4 md:p-5 shadow-sm">
-                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/12 text-primary font-semibold flex items-center justify-center">
-                      {initials || 'U'}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-800">{fullName}</p>
-                      <p className="text-xs text-gray-500">{review.user?.email || 'N/A'}</p>
-                      <p className="text-sm text-gray-600 mt-1">
-                        {review.car?.brand || 'Car'} {review.car?.model || ''}{' '}
-                        <span className="text-gray-400">• {review.car?.location || 'Unknown location'}</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1">{renderStars(ratingValue)}</div>
-                </div>
-
-                {isEditing ? (
-                  <div className="mt-4 space-y-3">
-                    <select
-                      value={draft.rating}
-                      onChange={(event) => setDraft((prev) => ({ ...prev, rating: event.target.value }))}
-                      className="border border-borderColor rounded-lg px-3 py-2 text-sm bg-white"
-                    >
-                      <option value="5">5 - Excellent</option>
-                      <option value="4">4 - Very Good</option>
-                      <option value="3">3 - Good</option>
-                      <option value="2">2 - Fair</option>
-                      <option value="1">1 - Poor</option>
-                    </select>
-
-                    <textarea
-                      rows={3}
-                      value={draft.comment}
-                      onChange={(event) => setDraft((prev) => ({ ...prev, comment: event.target.value }))}
-                      className="w-full border border-borderColor rounded-lg px-3 py-2 text-sm"
-                    />
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        disabled={isBusy}
-                        onClick={() => saveEdit(review._id)}
-                        className={`px-3 py-2 rounded-lg text-sm text-white ${
-                          isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600'
-                        }`}
-                      >
-                        Save
-                      </button>
-                      <button
-                        disabled={isBusy}
-                        onClick={() => setEditId('')}
-                        className="px-3 py-2 rounded-lg text-sm border border-borderColor hover:bg-light"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-4">
-                    <p className="text-gray-700 text-sm leading-relaxed">"{review.comment}"</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        disabled={isBusy}
-                        onClick={() => startEdit(review)}
-                        className="px-3 py-2 rounded-lg text-sm text-white bg-blue-600"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        disabled={isBusy}
-                        onClick={() => removeReview(review._id)}
-                        className="px-3 py-2 rounded-lg text-sm text-white bg-red-500"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                )}
+      <div className="admin-section-scroll-shell mt-4">
+        <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
+        <div className="admin-section-scroll">
+          <div className="max-w-6xl space-y-3">
+            {loading ? (
+              <div className="snap-start rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
+                Loading reviews...
               </div>
-            );
-          })}
+            ) : null}
+
+            {!loading && filteredReviews.length === 0 ? (
+              <div className="snap-start rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
+                No reviews found.
+              </div>
+            ) : null}
+
+            {!loading &&
+              filteredReviews.map((review) => {
+                const isEditing = editId === review._id;
+                const isBusy = loadingId === review._id;
+                const fullName = `${review.user?.firstName || ''} ${review.user?.lastName || ''}`.trim() || 'User';
+                const initials = fullName
+                  .split(' ')
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0].toUpperCase())
+                  .join('');
+                const ratingValue = isEditing ? Number(draft.rating || 5) : Number(review.rating || 0);
+
+                return (
+                  <div key={review._id} className="snap-start rounded-xl border border-borderColor bg-white p-4 md:p-5 shadow-sm">
+                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-full bg-primary/12 text-primary font-semibold flex items-center justify-center">
+                          {initials || 'U'}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-800">{fullName}</p>
+                          <p className="text-xs text-gray-500">{review.user?.email || 'N/A'}</p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {review.car?.brand || 'Car'} {review.car?.model || ''}{' '}
+                            <span className="text-gray-400">| {review.car?.location || 'Unknown location'}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1">{renderStars(ratingValue)}</div>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="mt-4 space-y-3">
+                        <select
+                          value={draft.rating}
+                          onChange={(event) => setDraft((prev) => ({ ...prev, rating: event.target.value }))}
+                          className="border border-borderColor rounded-lg px-3 py-2 text-sm bg-white"
+                        >
+                          <option value="5">5 - Excellent</option>
+                          <option value="4">4 - Very Good</option>
+                          <option value="3">3 - Good</option>
+                          <option value="2">2 - Fair</option>
+                          <option value="1">1 - Poor</option>
+                        </select>
+
+                        <textarea
+                          rows={3}
+                          value={draft.comment}
+                          onChange={(event) => setDraft((prev) => ({ ...prev, comment: event.target.value }))}
+                          className="w-full border border-borderColor rounded-lg px-3 py-2 text-sm"
+                        />
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            disabled={isBusy}
+                            onClick={() => saveEdit(review._id)}
+                            className={`px-3 py-2 rounded-lg text-sm text-white ${
+                              isBusy ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600'
+                            }`}
+                          >
+                            Save
+                          </button>
+                          <button
+                            disabled={isBusy}
+                            onClick={() => setEditId('')}
+                            className="px-3 py-2 rounded-lg text-sm border border-borderColor hover:bg-light"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4">
+                        <p className="text-gray-700 text-sm leading-relaxed">"{review.comment}"</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            disabled={isBusy}
+                            onClick={() => startEdit(review)}
+                            className="px-3 py-2 rounded-lg text-sm text-white bg-blue-600"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            disabled={isBusy}
+                            onClick={() => removeReview(review._id)}
+                            className="px-3 py-2 rounded-lg text-sm text-white bg-red-500"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+        <span className="admin-section-blur admin-section-blur--bottom" aria-hidden="true" />
       </div>
     </div>
   );
