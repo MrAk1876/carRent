@@ -4,7 +4,7 @@ const createApp = require('./app');
 const express = require('express');
 
 const PORT = Number(process.env.PORT || 5000);
-const app = createApp({ enableRootHealthRoute: true });
+const app = createApp({ enableRootHealthRoute: false });
 
 // Serve React build
 app.use(express.static(path.resolve(__dirname, '../client/dist')));
