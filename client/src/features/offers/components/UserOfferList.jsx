@@ -20,7 +20,7 @@ const statusBadge = (status) => {
 };
 
 const UserOfferList = ({ offers, onRefresh }) => {
-  const currency = import.meta.env.VITE_CURRENCY;
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const notify = useNotify();
   const [counterById, setCounterById] = useState({});
   const [messageById, setMessageById] = useState({});

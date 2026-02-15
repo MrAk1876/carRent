@@ -5,7 +5,7 @@ import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
 
 const ManageCars = () => {
-  const currency = import.meta.env.VITE_CURRENCY;
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const navigate = useNavigate();
   const [cars, setCars] = useState([]);
   const [search, setSearch] = useState('');

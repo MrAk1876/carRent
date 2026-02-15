@@ -91,7 +91,7 @@ const mapCarToForm = (car) => {
 };
 
 const AddCar = () => {
-  const currency = import.meta.env.VITE_CURRENCY;
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
 

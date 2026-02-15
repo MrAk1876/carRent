@@ -3,7 +3,7 @@ import API, { getErrorMessage } from '../../../api';
 import { isLoggedIn } from '../../../utils/auth';
 
 const MakeOfferForm = ({ carId, fromDate, toDate, originalPrice = 0, onSuccess }) => {
-  const currency = import.meta.env.VITE_CURRENCY;
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const [offeredPrice, setOfferedPrice] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);

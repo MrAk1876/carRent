@@ -3,7 +3,7 @@ import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
 
 const ManageBooking = () => {
-  const currency = import.meta.env.VITE_CURRENCY;
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const [bookings, setBookings] = useState([]);
   const [loadingId, setLoadingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');

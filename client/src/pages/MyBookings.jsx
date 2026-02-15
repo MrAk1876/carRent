@@ -5,7 +5,7 @@ import UserOfferList from '../features/offers/components/UserOfferList';
 import useNotify from '../hooks/useNotify';
 
 const MyBookings = () => {
-  const currency = import.meta.env.VITE_CURRENCY;
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const notify = useNotify();
   const [bookings, setBookings] = useState([]);
   const [requests, setRequests] = useState([]);

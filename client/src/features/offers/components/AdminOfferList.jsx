@@ -28,7 +28,7 @@ const formatStatus = (status) => {
 };
 
 const AdminOfferList = () => {
-  const currency = import.meta.env.VITE_CURRENCY;
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const [offers, setOffers] = useState([]);
   const [counterPriceById, setCounterPriceById] = useState({});
   const [messageById, setMessageById] = useState({});

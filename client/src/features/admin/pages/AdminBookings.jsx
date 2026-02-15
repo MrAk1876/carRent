@@ -4,7 +4,7 @@ import Title from '../components/Title';
 import useNotify from '../../../hooks/useNotify';
 
 const AdminBookings = () => {
-  const currency = import.meta.env.VITE_CURRENCY;
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const notify = useNotify();
   const [bookings, setBookings] = useState([]);
   const [counterPriceById, setCounterPriceById] = useState({});

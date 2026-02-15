@@ -95,7 +95,7 @@ const CarDetailSkeleton = () => (
 );
 
 const CarDetail = () => {
-  const currency = import.meta.env.VITE_CURRENCY || '$';
+  const currency = import.meta.env.VITE_CURRENCY || '₹';
   const { id } = useParams();
   const navigate = useNavigate();
 
