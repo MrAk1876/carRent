@@ -11,13 +11,15 @@ app.use(express.static(path.resolve(__dirname, '../client/dist')));
 
 // SPA fallback (Express 5 safe)
 app.use((req, res, next) => {
-  if (req.originalUrl.startsWith('/api')) {
+  if (
+    req.originalUrl.startsWith('/api') ||
+    req.originalUrl.includes('.')
+  ) {
     return next();
   }
 
   res.sendFile(path.resolve(__dirname, '../client/dist/index.html'));
 });
-
 app.listen(PORT, () => {
   console.log('Server running on port ' + PORT);
 });
