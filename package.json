@@ -1,0 +1,12 @@
+{
+  "name": "car-rent",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "npm --prefix backend run dev:single",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix backend run start"
+  }
+}

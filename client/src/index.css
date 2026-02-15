@@ -1,0 +1,97 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap");
+
+@import "tailwindcss";
+
+* {
+  font-family: "Outfit", sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
+body {
+  color: #1e293b;
+  background: #ffffff;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -webkit-overflow-scrolling: touch;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3869e8 #e7edfb;
+}
+
+*::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #e7edfb;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #5c89fa 0%, #2a5fdd 100%);
+  border: 2px solid #e7edfb;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #4b7df7 0%, #1e4fcb 100%);
+}
+
+*::-webkit-scrollbar-corner {
+  background: #e7edfb;
+}
+
+@keyframes message-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.message-toast-enter {
+  animation: message-toast-in 200ms ease-out;
+}
+
+@media (max-width: 640px) {
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+}
+
+a,
+button {
+  transition: color 180ms ease, background-color 180ms ease, box-shadow 220ms ease, transform 180ms ease;
+}
+
+button:hover {
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+@theme {
+    --color-primary: #2563eb;
+    --color-primary-dull: #1f58d8;
+    --color-light: #f1f5f9;
+    --color-borderColor: #c4c7d2;
+}
