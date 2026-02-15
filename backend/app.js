@@ -5,6 +5,35 @@ const userRoutes = require('./routes/userRoutes');
 
 let dbConnected = false;
 
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'https://carrent-production-0235.up.railway.app',
+];
+
+const normalizeOrigin = (origin = '') => origin.trim().replace(/\/+$/, '').toLowerCase();
+
+const buildAllowedOrigins = () => {
+  const configuredOrigins = (process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map(normalizeOrigin)
+    .filter(Boolean);
+
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    configuredOrigins.push(normalizeOrigin(`https://${process.env.RAILWAY_PUBLIC_DOMAIN}`));
+  }
+
+  return new Set([...DEFAULT_ALLOWED_ORIGINS, ...configuredOrigins].map(normalizeOrigin).filter(Boolean));
+};
+
+const getRequestOrigin = (req) => {
+  const host = req.get('x-forwarded-host') || req.get('host');
+  if (!host) return '';
+
+  const forwardedProto = req.get('x-forwarded-proto');
+  const protocol = forwardedProto ? forwardedProto.split(',')[0].trim() : req.protocol;
+  return normalizeOrigin(`${protocol}://${host}`);
+};
+
 const ensureDbConnection = () => {
   if (dbConnected) return;
   connectDB();
@@ -14,28 +43,21 @@ const ensureDbConnection = () => {
 const createApp = (options = {}) => {
   const { enableRootHealthRoute = true } = options;
   const app = express();
-
-  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,https://carrent-production-0235.up.railway.app')
-    .split(',')
-    .map(origin => origin.trim())
-    .filter(Boolean);
+  const allowedOrigins = buildAllowedOrigins();
 
   app.disable('x-powered-by');
   app.use(
-    cors({
-      origin(origin, callback) {
-        // allow server-to-server and same-origin requests
-        if (!origin) return callback(null, true);
+    cors((req, callback) => {
+      const origin = normalizeOrigin(req.get('origin') || '');
+      const sameOrigin = origin && origin === getRequestOrigin(req);
+      const isAllowed = Boolean(origin) && (sameOrigin || allowedOrigins.has(origin));
 
-        if (allowedOrigins.includes(origin)) {
-          return callback(null, true);
-        }
-
-        return callback(new Error('Not allowed by CORS'));
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      callback(null, {
+        origin: isAllowed,
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+      });
     }),
   );
 
@@ -65,16 +87,6 @@ const createApp = (options = {}) => {
   app.use('/api/contact', require('./routes/contactRoutes'));
   app.use('/api/admin', require('./routes/adminRoutes'));
   app.use('/api/user', userRoutes);
-
-  app.use((err, req, res, next) => {
-    if (res.headersSent) {
-      return next(err);
-    }
-    if (err && err.message) {
-      return res.status(400).json({ message: err.message });
-    }
-    return res.status(500).json({ message: 'Internal server error' });
-  });
 
   return app;
 };

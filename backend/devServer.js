@@ -42,6 +42,18 @@ const startDevServer = async () => {
     }
   });
 
+  app.use((err, req, res, next) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    const statusCode =
+      Number.isInteger(err?.status) ? err.status : Number.isInteger(err?.statusCode) ? err.statusCode : 500;
+    const message = statusCode >= 500 ? "Internal server error" : err?.message || "Request failed";
+
+    return res.status(statusCode).json({ message });
+  });
+
   httpServer.on("error", (error) => {
     if (error && error.code === "EADDRINUSE") {
       console.error(
