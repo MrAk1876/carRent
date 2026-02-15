@@ -8,11 +8,22 @@ const app = createApp({ enableRootHealthRoute: false });
 
 const distPath = path.resolve(__dirname, '../client/dist');
 
-// Serve static files
+// Serve static files first
 app.use(express.static(distPath));
 
-// SPA fallback (only if file not found)
-app.get('/*', (req, res) => {
+// SPA fallback (Express 5 safe — no wildcard)
+app.use((req, res, next) => {
+  // If request starts with /api → let API handle it
+  if (req.path.startsWith('/api')) {
+    return next();
+  }
+
+  // If it looks like a file request (.js, .css, .png, etc.) → skip
+  if (req.path.includes('.')) {
+    return next();
+  }
+
+  // Otherwise serve React index.html
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
