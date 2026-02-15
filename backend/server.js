@@ -1,22 +1,18 @@
-const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '.env') });
-const createApp = require('./app');
 const express = require('express');
+const path = require('path');
+require('dotenv').config();
+const createApp = require('./app');
 
-const PORT = Number(process.env.PORT || 5000);
 const app = createApp({ enableRootHealthRoute: false });
+const PORT = process.env.PORT || 8080;
 
-const distPath = path.resolve(__dirname, '../client/dist');
+/* 1️⃣ Serve static files FIRST */
+app.use(express.static(path.join(__dirname, '../client/dist')));
 
-// Serve static files
-app.use(express.static(distPath));
-
-// Express 5 safe SPA fallback (NO wildcard string)
 app.use((req, res, next) => {
   if (req.path.startsWith('/api')) return next();
-  if (req.path.includes('.')) return next(); // skip asset files
 
-  res.sendFile(path.join(distPath, 'index.html'));
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
 app.listen(PORT, () => {
