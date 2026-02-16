@@ -2,6 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { assets } from '../../../assets/assets';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
+import {
+  getNormalizedStatusKey,
+  isConfirmedBookingStatus,
+  isFullyPaidStatus,
+  isPendingPaymentBookingStatus,
+  resolveFinalAmount,
+} from '../../../utils/payment';
 
 const Dashboard = () => {
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
@@ -29,10 +36,13 @@ const Dashboard = () => {
   ];
 
   const statusClass = (status) => {
-    const normalized = String(status || '').toUpperCase();
+    const normalized = getNormalizedStatusKey(status);
     if (normalized === 'CONFIRMED') return 'bg-green-100 text-green-700 border-green-200';
-    if (normalized === 'PENDING') return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    if (normalized === 'REJECTED' || normalized === 'CANCELLED_BY_USER') return 'bg-red-100 text-red-700 border-red-200';
+    if (normalized === 'PENDING' || normalized === 'PENDINGPAYMENT') return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+    if (normalized === 'COMPLETED') return 'bg-blue-100 text-blue-700 border-blue-200';
+    if (normalized === 'REJECTED' || normalized === 'CANCELLEDBYUSER' || normalized === 'CANCELLED') {
+      return 'bg-red-100 text-red-700 border-red-200';
+    }
     return 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
@@ -50,10 +60,10 @@ const Dashboard = () => {
         const cars = Array.isArray(carsRes.data) ? carsRes.data : [];
         const sortedBookings = [...bookings].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        const pending = bookings.filter((b) => b.bookingStatus === 'PENDING');
-        const confirmed = bookings.filter((b) => b.bookingStatus === 'CONFIRMED');
+        const pending = bookings.filter((b) => isPendingPaymentBookingStatus(b.bookingStatus));
+        const confirmed = bookings.filter((b) => isConfirmedBookingStatus(b.bookingStatus));
         const completed = bookings.filter((b) => b.tripStatus === 'completed');
-        const fullyPaidBookings = bookings.filter((b) => b.paymentStatus === 'FULLY_PAID');
+        const fullyPaidBookings = bookings.filter((b) => isFullyPaidStatus(b.paymentStatus));
 
         const now = new Date();
         const revenue = fullyPaidBookings
@@ -61,9 +71,9 @@ const Dashboard = () => {
             const receivedAt = b.fullPaymentReceivedAt ? new Date(b.fullPaymentReceivedAt) : new Date(b.updatedAt);
             return receivedAt.getMonth() === now.getMonth() && receivedAt.getFullYear() === now.getFullYear();
           })
-          .reduce((sum, b) => sum + Number(b.totalAmount || 0), 0);
+          .reduce((sum, b) => sum + resolveFinalAmount(b), 0);
 
-        const totalRevenue = fullyPaidBookings.reduce((sum, b) => sum + Number(b.totalAmount || 0), 0);
+        const totalRevenue = fullyPaidBookings.reduce((sum, b) => sum + resolveFinalAmount(b), 0);
 
         const revenueTrend = [];
         for (let offset = 5; offset >= 0; offset -= 1) {
@@ -78,7 +88,7 @@ const Dashboard = () => {
                 : new Date(booking.updatedAt);
               return receivedAt.getMonth() === month && receivedAt.getFullYear() === year;
             })
-            .reduce((sum, booking) => sum + Number(booking.totalAmount || 0), 0);
+            .reduce((sum, booking) => sum + resolveFinalAmount(booking), 0);
 
           revenueTrend.push({
             label: monthDate.toLocaleString('default', { month: 'short' }),
@@ -197,9 +207,9 @@ const Dashboard = () => {
                       </div>
 
                       <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-2.5">
-                        <p className="text-sm font-medium whitespace-nowrap">
+                          <p className="text-sm font-medium whitespace-nowrap">
                           {currency}
-                          {booking.totalAmount}
+                          {resolveFinalAmount(booking)}
                         </p>
                         <p
                           className={`px-2.5 py-0.5 border rounded-full text-[11px] sm:text-xs whitespace-nowrap ${statusClass(

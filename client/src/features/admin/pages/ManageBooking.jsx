@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
+import {
+  calculateAdvanceBreakdown,
+  isAdvancePaidStatus,
+  resolveAdvanceRequired,
+  resolveFinalAmount,
+  resolveRemainingAmount,
+} from '../../../utils/payment';
 
 const ManageBooking = () => {
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
@@ -13,31 +20,45 @@ const ManageBooking = () => {
     return Number.isFinite(num) ? num : 0;
   };
 
+  const formatDaysLabel = (value) => {
+    const days = toSafeNumber(value);
+    if (days <= 0) return '0';
+    return Number.isInteger(days) ? String(days) : days.toFixed(1);
+  };
+
   const getPriceSummary = (request) => {
-    const days = Math.max(toSafeNumber(request.days), 1);
+    const days = Math.max(toSafeNumber(request.days), 0);
     const pricePerDay = toSafeNumber(request.car?.pricePerDay);
-    const totalAmount = toSafeNumber(request.totalAmount);
-    const originalAmount = pricePerDay > 0 ? pricePerDay * days : totalAmount;
+    const totalAmount = resolveFinalAmount(request);
+    const originalAmount = pricePerDay > 0 && days > 0 ? pricePerDay * days : totalAmount;
 
     const bargainStatus = request.bargain?.status;
     const negotiatedUserPrice = toSafeNumber(request.bargain?.userPrice);
     const isFinalizedNegotiation = ['LOCKED', 'ACCEPTED'].includes(bargainStatus);
 
     const finalPrice = isFinalizedNegotiation && negotiatedUserPrice > 0 ? negotiatedUserPrice : totalAmount;
-    const advanceAmount = Number(request.advanceAmount || Math.round(finalPrice * 0.3));
+    const breakdown = calculateAdvanceBreakdown(finalPrice);
+    const advanceAmount = resolveAdvanceRequired(request) || breakdown.advanceRequired;
+    const remainingAmount = resolveRemainingAmount({
+      ...request,
+      finalAmount: finalPrice,
+      advanceRequired: advanceAmount,
+    });
 
     return {
       totalAmount: Math.round(originalAmount),
       finalPrice: Math.round(finalPrice),
       advanceAmount,
+      remainingAmount: Math.round(remainingAmount),
+      advancePercent: Math.round(breakdown.advanceRate * 100),
     };
   };
 
   const stats = useMemo(() => {
     const total = bookings.length;
-    const paidAdvance = bookings.filter((request) => request.paymentStatus === 'PAID').length;
+    const paidAdvance = bookings.filter((request) => isAdvancePaidStatus(request.paymentStatus)).length;
     const pendingAdvance = Math.max(total - paidAdvance, 0);
-    const expectedRevenue = bookings.reduce((sum, request) => sum + Number(request.totalAmount || 0), 0);
+    const expectedRevenue = bookings.reduce((sum, request) => sum + resolveFinalAmount(request), 0);
     return { total, paidAdvance, pendingAdvance, expectedRevenue };
   }, [bookings]);
 
@@ -50,7 +71,7 @@ const ManageBooking = () => {
       if (
         newStatus === 'approved' &&
         selectedRequest &&
-        String(selectedRequest.paymentStatus || 'UNPAID') !== 'PAID'
+        !isAdvancePaidStatus(selectedRequest.paymentStatus)
       ) {
         setErrorMsg('Advance payment is not completed yet for this request.');
         setLoadingId(null);
@@ -149,7 +170,7 @@ const ManageBooking = () => {
 
                   {bookings.map((booking) => {
                     const summary = getPriceSummary(booking);
-                    const isAdvancePaid = booking.paymentStatus === 'PAID';
+                    const isAdvancePaid = isAdvancePaidStatus(booking.paymentStatus);
                     const name = `${booking.user?.firstName || ''} ${booking.user?.lastName || ''}`.trim();
                     const negotiationStatus = booking.bargain?.status || 'NONE';
 
@@ -177,7 +198,7 @@ const ManageBooking = () => {
                             {booking.fromDate?.split('T')[0]} to {booking.toDate?.split('T')[0]}
                           </p>
                           <p className="text-xs text-gray-500 mt-1">
-                            {Math.max(Number(booking.days || 0), 1)} day(s)
+                            {formatDaysLabel(booking.days)} billed day(s)
                           </p>
                         </td>
 
@@ -197,10 +218,17 @@ const ManageBooking = () => {
                             </span>
                           </p>
                           <p className="text-xs text-gray-500">
-                            Advance (30%):{' '}
+                            Advance Required ({summary.advancePercent}%):{' '}
                             <span className="font-medium text-gray-700">
                               {currency}
                               {summary.advanceAmount}
+                            </span>
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Remaining Amount:{' '}
+                            <span className="font-medium text-gray-700">
+                              {currency}
+                              {summary.remainingAmount}
                             </span>
                           </p>
                           <p className="text-xs text-gray-500">

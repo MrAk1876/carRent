@@ -1,5 +1,12 @@
 const Booking = require('../models/Booking');
 const Car = require('../models/Car');
+const {
+  calculateAdvanceBreakdown,
+  isConfirmedBookingStatus,
+  isPendingPaymentBookingStatus,
+  normalizeStatusKey,
+} = require('../utils/paymentUtils');
+const { syncRentalStagesForBookings } = require('../services/rentalStageService');
 
 exports.createRequest = async (req, res) => {
   try {
@@ -41,7 +48,7 @@ exports.createRequest = async (req, res) => {
 
     // 4️⃣ Price calculation
     const totalAmount = days * car.pricePerDay;
-    const advanceAmount = Math.round(totalAmount * 0.3); // 30% advance
+    const breakdown = calculateAdvanceBreakdown(totalAmount);
 
     // 5️⃣ Create booking
     const booking = await Booking.create({
@@ -49,11 +56,21 @@ exports.createRequest = async (req, res) => {
       car: carId,
       fromDate,
       toDate,
-      totalAmount,
-      advanceAmount,
+      pickupDateTime: fromDate,
+      dropDateTime: toDate,
+      actualPickupTime: null,
+      actualReturnTime: null,
+      gracePeriodHours: 1,
+      rentalStage: 'Scheduled',
+      totalAmount: breakdown.finalAmount,
+      finalAmount: breakdown.finalAmount,
+      advanceAmount: breakdown.advanceRequired,
+      advanceRequired: breakdown.advanceRequired,
+      advancePaid: 0,
+      remainingAmount: breakdown.remainingAmount,
 
-      paymentStatus: 'ADVANCE_PAID',
-      bookingStatus: 'PENDING',
+      paymentStatus: 'Unpaid',
+      bookingStatus: 'PendingPayment',
 
       bargain: {
         userAttempts: 0,
@@ -75,6 +92,7 @@ exports.getMyBookings = async (req, res) => {
   try {
     const bookings = await Booking.find({ user: req.user._id }).populate('car').sort({ createdAt: -1 });
 
+    await syncRentalStagesForBookings(bookings, { persist: true });
     res.json(bookings);
   } catch (error) {
     res.status(500).json({ message: 'Failed to load bookings' });
@@ -97,16 +115,16 @@ exports.cancelBooking = async (req, res) => {
     }
 
     // Cannot cancel after confirmation
-    if (booking.bookingStatus === 'CONFIRMED') {
+    if (isConfirmedBookingStatus(booking.bookingStatus) || normalizeStatusKey(booking.bookingStatus) === 'COMPLETED') {
       return res.status(400).json({
         message: 'Confirmed bookings cannot be cancelled',
       });
     }
 
     // 🔴 USER cancellation → NO refund
-    booking.bookingStatus = 'CANCELLED_BY_USER';
+    booking.bookingStatus = 'Cancelled';
 
-    // Payment stays ADVANCE_PAID (no refund)
+    // Keep recorded payment status; no refund on user cancellation.
     await booking.save();
 
     // Make car available again
@@ -128,7 +146,7 @@ exports.adminRejectBooking = async (req, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    if (booking.bookingStatus !== 'PENDING') {
+    if (!isPendingPaymentBookingStatus(booking.bookingStatus)) {
       return res.status(400).json({
         message: 'Only pending bookings can be rejected',
       });
@@ -168,7 +186,8 @@ exports.userBargainPrice = async (req, res) => {
     }
 
     // Bargaining is allowed on upcoming, active booking records in negotiable states
-    if (!['PENDING', 'CONFIRMED'].includes(booking.bookingStatus)) {
+    const bookingStatusKey = normalizeStatusKey(booking.bookingStatus);
+    if (!['PENDING', 'PENDINGPAYMENT', 'CONFIRMED'].includes(bookingStatusKey)) {
       return res.status(400).json({
         message: 'Bargaining is not allowed for this booking status',
       });
@@ -217,6 +236,15 @@ exports.userBargainPrice = async (req, res) => {
     booking.bargain.userAttempts += 1;
     booking.bargain.userPrice = normalizedOfferedPrice;
     booking.bargain.status = 'USER_OFFERED';
+    booking.totalAmount = normalizedOfferedPrice;
+    booking.finalAmount = normalizedOfferedPrice;
+    const userBreakdown = calculateAdvanceBreakdown(normalizedOfferedPrice);
+    booking.advanceRequired = userBreakdown.advanceRequired;
+    booking.advanceAmount = userBreakdown.advanceRequired;
+    booking.remainingAmount = Math.max(
+      userBreakdown.finalAmount - Number(booking.advancePaid || userBreakdown.advanceRequired),
+      0
+    );
 
     await booking.save();
 
@@ -239,7 +267,7 @@ exports.adminBargainDecision = async (req, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    if (booking.bookingStatus !== 'PENDING') {
+    if (!isPendingPaymentBookingStatus(booking.bookingStatus)) {
       return res.status(400).json({
         message: 'Bargain allowed only for pending bookings',
       });
@@ -254,7 +282,16 @@ exports.adminBargainDecision = async (req, res) => {
     // 1️⃣ Admin ACCEPT
     if (action === 'accept') {
       booking.totalAmount = booking.bargain.userPrice;
+      booking.finalAmount = booking.bargain.userPrice;
       booking.bargain.status = 'ACCEPTED';
+
+      const acceptedBreakdown = calculateAdvanceBreakdown(booking.finalAmount);
+      booking.advanceRequired = acceptedBreakdown.advanceRequired;
+      booking.advanceAmount = acceptedBreakdown.advanceRequired;
+      booking.remainingAmount = Math.max(
+        acceptedBreakdown.finalAmount - Number(booking.advancePaid || acceptedBreakdown.advanceRequired),
+        0
+      );
     }
 
     // 2️⃣ Admin COUNTER
@@ -310,7 +347,16 @@ exports.userRespondToCounter = async (req, res) => {
     // ACCEPT admin price
     if (action === "accept") {
       booking.totalAmount = booking.bargain.adminCounterPrice;
+      booking.finalAmount = booking.bargain.adminCounterPrice;
       booking.bargain.status = "ACCEPTED";
+
+      const counterAcceptedBreakdown = calculateAdvanceBreakdown(booking.finalAmount);
+      booking.advanceRequired = counterAcceptedBreakdown.advanceRequired;
+      booking.advanceAmount = counterAcceptedBreakdown.advanceRequired;
+      booking.remainingAmount = Math.max(
+        counterAcceptedBreakdown.finalAmount - Number(booking.advancePaid || counterAcceptedBreakdown.advanceRequired),
+        0
+      );
     }
 
     // REJECT admin price

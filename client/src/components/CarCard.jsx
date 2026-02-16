@@ -61,7 +61,7 @@ const CarCard = ({ car }) => {
               {car.category} | {car.year}
             </p>
           </div>
-          <span className="text-[11px] px-2 py-1 rounded-full bg-light border border-borderColor text-gray-600">30% Advance</span>
+          <span className="text-[11px] px-2 py-1 rounded-full bg-light border border-borderColor text-gray-600">Dynamic Advance</span>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-y-2 text-gray-600">

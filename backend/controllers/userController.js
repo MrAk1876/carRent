@@ -3,6 +3,9 @@ const Request = require('../models/Request');
 const User = require('../models/User');
 const Car = require('../models/Car');
 const { uploadImageFromBuffer, deleteImageByPublicId } = require('../utils/cloudinaryImage');
+const { isConfirmedBookingStatus, normalizeStatusKey } = require('../utils/paymentUtils');
+const { syncRentalStagesForBookings } = require('../services/rentalStageService');
+const { finalizeBookingSettlement } = require('../services/bookingSettlementService');
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -12,6 +15,7 @@ exports.getMyBookings = async (req, res) => {
       .populate('car')
       .sort({ createdAt: -1 });
 
+    await syncRentalStagesForBookings(bookings, { persist: true });
     res.json(bookings);
   } catch (error) {
     res.status(500).json({ message: 'Failed to load bookings' });
@@ -28,6 +32,7 @@ exports.getUserDashboard = async (req, res) => {
       .populate('car')
       .sort({ createdAt: -1 });
 
+    await syncRentalStagesForBookings(bookings, { persist: true });
     res.json({ requests, bookings });
   } catch (error) {
     console.error(error);
@@ -46,7 +51,11 @@ exports.cancelBooking = async (req, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    if (booking.tripStatus === 'active' || booking.bookingStatus === 'CONFIRMED') {
+    if (
+      booking.tripStatus === 'active' ||
+      isConfirmedBookingStatus(booking.bookingStatus) ||
+      normalizeStatusKey(booking.bookingStatus) === 'COMPLETED'
+    ) {
       await Car.findByIdAndUpdate(booking.car, { isAvailable: true });
     }
 
@@ -78,6 +87,44 @@ exports.cancelRequest = async (req, res) => {
     res.json({ message: 'Request cancelled' });
   } catch (error) {
     res.status(500).json({ message: 'Cancel failed' });
+  }
+};
+
+exports.returnBookingAndPayRemaining = async (req, res) => {
+  try {
+    if (req.user?.role === 'admin') {
+      return res.status(403).json({ message: 'Admin cannot use user return flow' });
+    }
+
+    const booking = await Booking.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    }).populate('car', 'pricePerDay');
+
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    const stage = String(booking.rentalStage || '').trim().toLowerCase();
+    if (!['active', 'overdue'].includes(stage)) {
+      return res.status(422).json({ message: 'Return is allowed only for active or overdue rentals' });
+    }
+
+    const { booking: completedBooking, collectedAmount } = await finalizeBookingSettlement(booking, {
+      paymentMethod: req.body.paymentMethod || 'UPI',
+      now: new Date(),
+      finalizedAt: new Date(),
+    });
+
+    return res.json({
+      message: 'Return recorded and remaining payment completed',
+      collectedAmount,
+      booking: completedBooking,
+    });
+  } catch (error) {
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to complete return' : error.message;
+    return res.status(status).json({ message });
   }
 };
 

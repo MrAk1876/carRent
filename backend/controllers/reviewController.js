@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Review = require('../models/Review');
 const Booking = require('../models/Booking');
 const Car = require('../models/Car');
+const { isConfirmedBookingStatus, normalizeStatusKey } = require('../utils/paymentUtils');
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 
@@ -56,7 +57,8 @@ exports.createReview = async (req, res) => {
       return res.status(403).json({ message: 'You can only review your own rented cars' });
     }
 
-    if (booking.bookingStatus !== 'CONFIRMED') {
+    const bookingStatusKey = normalizeStatusKey(booking.bookingStatus);
+    if (!isConfirmedBookingStatus(booking.bookingStatus) && bookingStatusKey !== 'COMPLETED') {
       return res.status(422).json({ message: 'Review is allowed only for confirmed rentals' });
     }
 

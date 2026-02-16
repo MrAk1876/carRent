@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const upload = require('../config/upload');
 
-const { getAllRequests, approveRequest, rejectRequest, deleteRequest, completeBooking, getAllCars, addCar, toggleCar, deleteCar, updateCar, getAllBookings, getAllUsers, toggleBlockUser, deleteUser, resetUserPassword, handleBookingBargain } = require('../controllers/adminController');
+const { getAllRequests, approveRequest, rejectRequest, deleteRequest, completeBooking, startBookingPickup, getAllCars, addCar, toggleCar, deleteCar, updateCar, getAllBookings, getAllUsers, toggleBlockUser, deleteUser, resetUserPassword, handleBookingBargain } = require('../controllers/adminController');
 const {
   getAllOffers,
   acceptOffer,
@@ -26,6 +26,7 @@ const { protect, adminOnly } = require('../middleware/authMiddleware');
 router.get('/requests', protect, adminOnly, getAllRequests);
 router.get('/bookings', protect, adminOnly, getAllBookings);
 router.put('/bookings/complete/:id', protect, adminOnly, completeBooking);
+router.put('/bookings/pickup/:id', protect, adminOnly, startBookingPickup);
 router.put('/requests/approve/:id', protect, adminOnly, approveRequest);
 router.put('/requests/reject/:id', protect, adminOnly, rejectRequest);
 router.delete('/requests/:id', protect, adminOnly, deleteRequest);

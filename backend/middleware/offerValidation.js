@@ -1,15 +1,5 @@
 const mongoose = require('mongoose');
-
-const isValidDate = (value) => {
-  const date = new Date(value);
-  return !Number.isNaN(date.getTime());
-};
-
-const toDateOnly = (value) => {
-  const date = new Date(value);
-  date.setHours(0, 0, 0, 0);
-  return date;
-};
+const { parseDateTimeInput, validateRentalWindow } = require('../utils/rentalDateUtils');
 
 exports.validateCreateOffer = (req, res, next) => {
   const { carId, offeredPrice, fromDate, toDate, message } = req.body;
@@ -23,20 +13,15 @@ exports.validateCreateOffer = (req, res, next) => {
     return res.status(422).json({ message: 'offeredPrice must be a positive number' });
   }
 
-  if (!isValidDate(fromDate) || !isValidDate(toDate)) {
-    return res.status(422).json({ message: 'Valid fromDate and toDate are required' });
-  }
+  const normalizedPickupDateTime = parseDateTimeInput(fromDate);
+  const normalizedDropDateTime = parseDateTimeInput(toDate, { treatDateOnlyAsDropBoundary: true });
+  const rentalWindowError = validateRentalWindow(normalizedPickupDateTime, normalizedDropDateTime, {
+    minDurationHours: 1,
+    now: new Date(),
+  });
 
-  const start = toDateOnly(fromDate);
-  const end = toDateOnly(toDate);
-  const today = toDateOnly(new Date());
-
-  if (start < today) {
-    return res.status(422).json({ message: 'Pickup date cannot be in the past' });
-  }
-
-  if (end < start) {
-    return res.status(422).json({ message: 'Return date cannot be before pickup date' });
+  if (rentalWindowError) {
+    return res.status(422).json({ message: rentalWindowError });
   }
 
   if (message && String(message).length > 500) {
@@ -44,8 +29,8 @@ exports.validateCreateOffer = (req, res, next) => {
   }
 
   req.body.offeredPrice = normalizedPrice;
-  req.body.fromDate = start;
-  req.body.toDate = end;
+  req.body.fromDate = normalizedPickupDateTime;
+  req.body.toDate = normalizedDropDateTime;
   req.body.message = String(message || '').trim();
 
   return next();

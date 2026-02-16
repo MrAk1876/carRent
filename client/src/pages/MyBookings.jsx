@@ -1,8 +1,28 @@
 import React, { useEffect, useState } from 'react';
 import API, { getErrorMessage } from '../api';
 import Title from '../components/Title';
+import LiveLateFeeSummary from '../components/ui/LiveLateFeeSummary';
+import LiveStageCountdown from '../components/ui/LiveStageCountdown';
 import UserOfferList from '../features/offers/components/UserOfferList';
 import useNotify from '../hooks/useNotify';
+import {
+  calculateAdvanceBreakdown,
+  getNormalizedStatusKey,
+  isAdvancePaidStatus,
+  isCancelledBookingStatus,
+  isConfirmedBookingStatus,
+  isFullyPaidStatus,
+  resolveAdvancePaid,
+  resolveAdvanceRequired,
+  resolveDropDateTime,
+  resolveFinalAmount,
+  resolveLateFee,
+  resolveLateHours,
+  resolveHourlyLateRate,
+  resolvePickupDateTime,
+  resolveRentalStage,
+  resolveRemainingAmount,
+} from '../utils/payment';
 
 const MyBookings = () => {
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
@@ -24,22 +44,15 @@ const MyBookings = () => {
   const [reviewsError, setReviewsError] = useState('');
 
   const getStatusBadge = (status) => {
-    switch (status) {
-      case 'pending':
-      case 'PENDING':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'approved':
-      case 'CONFIRMED':
-      case 'ACCEPTED':
-        return 'bg-green-100 text-green-800';
-      case 'rejected':
-      case 'REJECTED':
-      case 'CANCELLED_BY_USER':
-      case 'cancelled':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-200 text-gray-700';
+    const normalizedStatus = getNormalizedStatusKey(status);
+    if (['PENDING', 'PENDINGPAYMENT'].includes(normalizedStatus)) return 'bg-yellow-100 text-yellow-800';
+    if (['APPROVED', 'CONFIRMED', 'ACCEPTED', 'COMPLETED'].includes(normalizedStatus)) {
+      return 'bg-green-100 text-green-800';
     }
+    if (['REJECTED', 'CANCELLED', 'CANCELLEDBYUSER'].includes(normalizedStatus)) {
+      return 'bg-red-100 text-red-800';
+    }
+    return 'bg-gray-200 text-gray-700';
   };
 
   const getPaymentLabel = (value) => {
@@ -47,6 +60,13 @@ const MyBookings = () => {
     if (!normalized || normalized === 'NONE') return 'Not selected';
     if (normalized === 'NETBANKING') return 'Net Banking';
     return normalized;
+  };
+
+  const formatDateTimeLabel = (value) => {
+    if (!value) return 'N/A';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'N/A';
+    return parsed.toLocaleString();
   };
 
   const fetchBookings = async () => {
@@ -144,7 +164,7 @@ const MyBookings = () => {
   });
 
   const isNegotiableBooking = (item) =>
-    item.type === 'booking' && item.tripStatus !== 'completed' && item.bookingStatus !== 'CANCELLED_BY_USER';
+    item.type === 'booking' && item.tripStatus !== 'completed' && !isCancelledBookingStatus(item.bookingStatus);
 
   const submitBookingBargain = async (bookingId) => {
     const offeredPrice = Number(bookingBargainById[bookingId]);
@@ -195,7 +215,8 @@ const MyBookings = () => {
 
   const canReviewBooking = (item) => {
     if (item.type !== 'booking') return false;
-    if (item.bookingStatus !== 'CONFIRMED') return false;
+    const normalizedBookingStatus = getNormalizedStatusKey(item.bookingStatus);
+    if (!isConfirmedBookingStatus(item.bookingStatus) && normalizedBookingStatus !== 'COMPLETED') return false;
     if (item.tripStatus === 'completed' || item.tripStatus === 'active' || item.tripStatus === 'upcoming') {
       return !reviewsByBookingId[item._id];
     }
@@ -323,49 +344,111 @@ const MyBookings = () => {
 
         {!loading && allItems.length === 0 && <p className="text-center text-gray-500 mt-6">You have no bookings yet.</p>}
 
-        {allItems.map((item) => (
-          <div key={item._id} className="grid grid-cols-1 md:grid-cols-4 gap-6 p-6 border rounded-xl bg-white shadow hover:shadow-lg transition">
-            <div className="h-40 overflow-hidden rounded">
-              <img src={item.car?.image} alt="car" className="w-full h-full object-cover" />
-            </div>
+        {allItems.map((item) => {
+          const finalAmount = resolveFinalAmount(item);
+          const fallbackBreakdown = calculateAdvanceBreakdown(finalAmount);
+          const advanceRatePercent = Math.round(fallbackBreakdown.advanceRate * 100);
+          const advanceRequired = resolveAdvanceRequired(item) || fallbackBreakdown.advanceRequired;
+          const advancePaid = resolveAdvancePaid(item);
+          const remainingAmount = resolveRemainingAmount(item);
+          const lateHours = resolveLateHours(item);
+          const lateFee = resolveLateFee(item);
+          const hourlyLateRate = resolveHourlyLateRate(item);
+          const pickupDateTime = resolvePickupDateTime(item);
+          const dropDateTime = resolveDropDateTime(item);
+          const gracePeriodHours = Number.isFinite(Number(item?.gracePeriodHours))
+            ? Math.max(Number(item?.gracePeriodHours), 0)
+            : 1;
+          const rentalStage = resolveRentalStage(item) || 'PendingPayment';
+          const fullPaymentAmount = Math.max(Number(item?.fullPaymentAmount || 0), 0);
+          const finalInvoiceAmount = Number((finalAmount + lateFee).toFixed(2));
+          const totalPaidAmount = isFullyPaidStatus(item?.paymentStatus)
+            ? Number(((Math.max(advancePaid, 0) + fullPaymentAmount) || finalInvoiceAmount).toFixed(2))
+            : Number((Math.max(advancePaid, 0)).toFixed(2));
+          const rentalStageClass =
+            rentalStage === 'Overdue'
+              ? 'bg-red-100 text-red-700'
+              : rentalStage === 'Active'
+              ? 'bg-emerald-100 text-emerald-700'
+              : rentalStage === 'Completed'
+              ? 'bg-gray-200 text-gray-700'
+              : 'bg-blue-100 text-blue-700';
+          const rentalStageTone =
+            rentalStage === 'Overdue'
+              ? 'text-red-700'
+              : rentalStage === 'Active'
+              ? 'text-emerald-700'
+              : rentalStage === 'Completed'
+              ? 'text-gray-600'
+              : 'text-blue-700';
 
-            <div className="md:col-span-2">
-              <h2 className="font-semibold text-lg">
-                {item.car?.brand} {item.car?.model}
-              </h2>
+          return (
+            <div key={item._id} className="grid grid-cols-1 md:grid-cols-4 gap-6 p-6 border rounded-xl bg-white shadow hover:shadow-lg transition">
+              <div className="h-40 overflow-hidden rounded">
+                <img src={item.car?.image} alt="car" className="w-full h-full object-cover" />
+              </div>
 
-              <p className="text-gray-500">
-                {item.car?.year} - {item.car?.category} - {item.car?.transmission}
-              </p>
+              <div className="md:col-span-2">
+                <h2 className="font-semibold text-lg">
+                  {item.car?.brand} {item.car?.model}
+                </h2>
 
-              <p className="mt-2 text-sm">
-                {item.fromDate?.split('T')[0]} to {item.toDate?.split('T')[0]}
-              </p>
+                <p className="text-gray-500">
+                  {item.car?.year} - {item.car?.category} - {item.car?.transmission}
+                </p>
 
-              <p className="text-sm text-gray-500 mt-1">Location: {item.car?.location}</p>
-              <span className="text-xs text-gray-400">{item.type === 'booking' ? 'Booking' : 'Booking Request'}</span>
-            </div>
+                <p className="mt-2 text-sm">Pickup: {formatDateTimeLabel(pickupDateTime)}</p>
+                <p className="text-sm">Drop: {formatDateTimeLabel(dropDateTime)}</p>
 
-            <div className="flex flex-col items-end justify-between">
-              <div className="flex gap-2">
-                {item.type === 'booking' && (
-                  <span className={`px-3 py-1 text-xs rounded-full ${getStatusBadge(item.bookingStatus)}`}>
-                    {item.bookingStatus}
+                <p className="text-sm text-gray-500 mt-1">Location: {item.car?.location}</p>
+                <span className="text-xs text-gray-400">{item.type === 'booking' ? 'Booking' : 'Booking Request'}</span>
+              </div>
+
+              <div className="flex flex-col items-end justify-between">
+                <div className="flex gap-2">
+                  {item.type === 'booking' && (
+                    <span className={`px-3 py-1 text-xs rounded-full ${getStatusBadge(item.bookingStatus)}`}>
+                      {item.bookingStatus}
+                    </span>
+                  )}
+
+                  <span
+                    className={`px-3 py-1 text-xs rounded-full ${
+                      item.tripStatus === 'active'
+                        ? 'bg-green-100 text-green-800'
+                        : item.tripStatus === 'completed'
+                        ? 'bg-gray-200 text-gray-700'
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}
+                  >
+                    {item.type === 'booking' ? item.tripStatus || 'upcoming' : item.status}
                   </span>
+
+                  {item.type === 'booking' ? (
+                    <span className={`px-3 py-1 text-xs rounded-full ${rentalStageClass}`}>
+                      {rentalStage === 'Overdue' ? <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-600 mr-1 animate-pulse" /> : null}
+                      {rentalStage}
+                    </span>
+                  ) : null}
+                </div>
+
+                {item.type === 'booking' ? (
+                  <LiveStageCountdown
+                    stage={rentalStage}
+                    pickupDateTime={pickupDateTime}
+                    dropDateTime={dropDateTime}
+                    gracePeriodHours={gracePeriodHours}
+                    className={`mt-1 text-xs ${rentalStageTone}`}
+                  />
+                ) : (
+                  <p className="mt-1 text-xs text-amber-700">Advance payment pending</p>
                 )}
 
-                <span
-                  className={`px-3 py-1 text-xs rounded-full ${
-                    item.tripStatus === 'active'
-                      ? 'bg-green-100 text-green-800'
-                      : item.tripStatus === 'completed'
-                      ? 'bg-gray-200 text-gray-700'
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}
-                >
-                  {item.type === 'booking' ? item.tripStatus || 'upcoming' : item.status}
-                </span>
-              </div>
+                {item.type === 'booking' && rentalStage === 'Overdue' ? (
+                  <div className="mt-2 w-full rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] text-red-700 text-right animate-pulse">
+                    Overdue rental: live late fee active
+                  </div>
+                ) : null}
 
               {item.bargain ? (
                 <p className="text-sm mt-1 text-gray-500">
@@ -386,21 +469,35 @@ const MyBookings = () => {
               {item.type === 'booking' && (
                 <p className="text-xl font-bold text-primary">
                   {currency}
-                  {item.totalAmount}
+                  {finalAmount}
                 </p>
               )}
 
               {item.type === 'request' && (
                 <div className="w-full mt-2 p-2 rounded border border-borderColor bg-light text-xs text-gray-600 space-y-1">
                   <p>
-                    Advance Due (30%):{' '}
+                    Final Amount:{' '}
                     <span className="font-semibold">
                       {currency}
-                      {item.advanceAmount || 0}
+                      {finalAmount}
                     </span>
                   </p>
                   <p>
-                    Payment Status: <span className="font-semibold">{item.paymentStatus || 'UNPAID'}</span>
+                    Advance Due ({advanceRatePercent}%):{' '}
+                    <span className="font-semibold">
+                      {currency}
+                      {advanceRequired}
+                    </span>
+                  </p>
+                  <p>
+                    Remaining After Advance:{' '}
+                    <span className="font-semibold">
+                      {currency}
+                      {remainingAmount}
+                    </span>
+                  </p>
+                  <p>
+                    Payment Status: <span className="font-semibold">{item.paymentStatus || 'Unpaid'}</span>
                   </p>
                   <p>
                     Payment Method: <span className="font-semibold">{getPaymentLabel(item.paymentMethod)}</span>
@@ -411,22 +508,63 @@ const MyBookings = () => {
               {item.type === 'booking' && (
                 <div className="w-full mt-2 p-2 rounded border border-borderColor bg-light text-xs text-gray-600 space-y-1">
                   <p>
-                    Payment Status: <span className="font-semibold">{item.paymentStatus || 'PENDING'}</span>
+                    Payment Status: <span className="font-semibold">{item.paymentStatus || 'Unpaid'}</span>
+                  </p>
+                  <p>
+                    Final Amount:{' '}
+                    <span className="font-semibold">
+                      {currency}
+                      {finalAmount}
+                    </span>
                   </p>
                   <p>
                     Advance Paid:{' '}
                     <span className="font-semibold">
                       {currency}
-                      {item.advanceAmount || 0}
+                      {advancePaid || advanceRequired}
                     </span>
                   </p>
                   <p>
                     Remaining:{' '}
                     <span className="font-semibold">
                       {currency}
-                      {Math.max(Number(item.totalAmount || 0) - Number(item.advanceAmount || 0), 0)}
+                      {remainingAmount}
                     </span>
                   </p>
+                  <LiveLateFeeSummary
+                    stage={rentalStage}
+                    dropDateTime={dropDateTime}
+                    gracePeriodHours={gracePeriodHours}
+                    lateHours={lateHours}
+                    lateFee={lateFee}
+                    hourlyLateRate={hourlyLateRate}
+                    finalAmount={finalAmount}
+                    advancePaid={advancePaid || advanceRequired}
+                    currency={currency}
+                    highlight={rentalStage === 'Overdue'}
+                  />
+
+                  {rentalStage === 'Completed' ? (
+                    <div className="mt-2 rounded-lg border border-borderColor bg-white p-2 space-y-1">
+                      <p>
+                        Total Paid:{' '}
+                        <span className="font-semibold">
+                          {currency}
+                          {totalPaidAmount}
+                        </span>
+                      </p>
+                      <p>
+                        Late Hours: <span className="font-semibold">{lateHours}</span>
+                      </p>
+                      <p>
+                        Final Invoice:{' '}
+                        <span className="font-semibold">
+                          {currency}
+                          {finalInvoiceAmount}
+                        </span>
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               )}
 
@@ -603,7 +741,7 @@ const MyBookings = () => {
 
               {item.type === 'request' && item.status === 'pending' && (
                 <div className="w-full mt-2 space-y-2">
-                  {item.paymentStatus !== 'PAID' ? (
+                  {!isAdvancePaidStatus(item.paymentStatus) ? (
                     <>
                       <select
                         value={requestPaymentMethodById[item._id] || 'CARD'}
@@ -630,7 +768,7 @@ const MyBookings = () => {
                     </>
                   ) : (
                     <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1">
-                      Advance paid. Waiting for admin approval.
+                      Advance paid. Booking confirmation is in progress.
                     </p>
                   )}
 
@@ -652,7 +790,9 @@ const MyBookings = () => {
                 </div>
               )}
 
-              {item.type === 'booking' && item.tripStatus === 'upcoming' && item.bookingStatus !== 'CANCELLED_BY_USER' && (
+              {item.type === 'booking' &&
+                resolveRentalStage(item) === 'Scheduled' &&
+                !isCancelledBookingStatus(item.bookingStatus) && (
                 <button
                   onClick={async () => {
                     if (!window.confirm('Cancel booking?')) return;
@@ -670,8 +810,9 @@ const MyBookings = () => {
                 </button>
               )}
             </div>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

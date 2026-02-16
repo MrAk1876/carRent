@@ -160,8 +160,7 @@ const Cars = () => {
               <h1 className="mt-4 text-4xl md:text-5xl font-semibold tracking-tight text-slate-900">Available Cars</h1>
 
               <p className="mt-3 text-slate-600 max-w-3xl mx-auto">
-                Find your next rental with smart price negotiation and only 30% advance payment before final admin
-                approval.
+                Find your next rental with smart price negotiation and dynamic advance payment based on final price.
               </p>
 
               <div className="mt-5 flex flex-wrap justify-center gap-3 text-sm">

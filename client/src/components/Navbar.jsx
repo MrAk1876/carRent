@@ -79,7 +79,8 @@ const Navbar = ({ setShowLogin }) => {
     setOpen(false);
   };
 
-  const isProtectedPath = (path) => path === '/my-bookings' || path === '/my-profile';
+  const isProtectedPath = (path) =>
+    path === '/my-bookings' || path === '/my-rental-status' || path === '/my-profile';
 
   const handleNavLinkClick = (event, path) => {
     if (isProtectedPath(path) && !loggedIn) {

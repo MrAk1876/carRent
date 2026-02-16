@@ -3,9 +3,17 @@ const Booking = require('../models/Booking');
 const Car = require('../models/Car');
 const User = require('../models/User');
 const { uploadImageFromBuffer, deleteImageByPublicId } = require('../utils/cloudinaryImage');
+const {
+  calculateAdvanceBreakdown,
+  resolveFinalAmount,
+  isAdvancePaidStatus,
+  isConfirmedBookingStatus,
+} = require('../utils/paymentUtils');
+const { syncRentalStagesForBookings } = require('../services/rentalStageService');
+const { finalizeBookingSettlement } = require('../services/bookingSettlementService');
 
 const MIN_PASSWORD_LENGTH = 8;
-const ALLOWED_PAYMENT_METHODS = new Set(['CARD', 'UPI', 'NETBANKING', 'CASH']);
+const LATE_RATE_MULTIPLIER = 1.5;
 const CAR_EDITABLE_FIELDS = [
   'name',
   'brand',
@@ -19,6 +27,15 @@ const CAR_EDITABLE_FIELDS = [
   'pricePerDay',
   'features',
 ];
+
+const calculateHourlyLateRate = (perDayPrice) => {
+  const normalizedPerDayPrice = Number(perDayPrice);
+  if (!Number.isFinite(normalizedPerDayPrice) || normalizedPerDayPrice <= 0) {
+    return 0;
+  }
+
+  return Number(((normalizedPerDayPrice / 24) * LATE_RATE_MULTIPLIER).toFixed(2));
+};
 
 const parseFeatures = (value) => {
   if (!value) return value;
@@ -92,12 +109,12 @@ exports.approveRequest = async (req, res) => {
       return res.status(422).json({ message: 'Only pending requests can be approved' });
     }
 
-    if (request.paymentStatus !== 'PAID') {
+    if (!isAdvancePaidStatus(request.paymentStatus)) {
       return res.status(422).json({ message: 'Advance payment is required before approval' });
     }
 
-    const advanceAmount = Number(request.advanceAmount || Math.round(request.totalAmount * 0.3));
-    const fullPaymentAmount = Math.max(Number(request.totalAmount || 0) - advanceAmount, 0);
+    const finalAmount = resolveFinalAmount(request);
+    const breakdown = calculateAdvanceBreakdown(finalAmount);
 
     let finalBargain;
     if (request.bargain && request.bargain.status !== 'NONE') {
@@ -112,14 +129,26 @@ exports.approveRequest = async (req, res) => {
       car: request.car._id,
       fromDate: request.fromDate,
       toDate: request.toDate,
-      totalAmount: request.totalAmount,
-      advanceAmount,
+      pickupDateTime: request.pickupDateTime || request.fromDate,
+      dropDateTime: request.dropDateTime || request.toDate,
+      actualPickupTime: null,
+      actualReturnTime: null,
+      gracePeriodHours: Number.isFinite(Number(request.gracePeriodHours))
+        ? Math.max(Number(request.gracePeriodHours), 0)
+        : 1,
+      rentalStage: 'Scheduled',
+      totalAmount: breakdown.finalAmount,
+      finalAmount: breakdown.finalAmount,
+      advanceAmount: breakdown.advanceRequired,
+      advanceRequired: breakdown.advanceRequired,
+      advancePaid: breakdown.advanceRequired,
+      remainingAmount: breakdown.remainingAmount,
       paymentMethod: request.paymentMethod || 'NONE',
-      paymentStatus: 'ADVANCE_PAID',
-      fullPaymentAmount,
+      paymentStatus: 'Partially Paid',
+      fullPaymentAmount: breakdown.remainingAmount,
       fullPaymentMethod: 'NONE',
       fullPaymentReceivedAt: null,
-      bookingStatus: 'CONFIRMED',
+      bookingStatus: 'Confirmed',
       tripStatus: 'upcoming',
       bargain: finalBargain,
     });
@@ -139,41 +168,60 @@ exports.approveRequest = async (req, res) => {
 
 exports.completeBooking = async (req, res) => {
   try {
-    const paymentMethod = String(req.body.paymentMethod || 'CASH').trim().toUpperCase();
-    if (!ALLOWED_PAYMENT_METHODS.has(paymentMethod)) {
-      return res.status(422).json({ message: 'paymentMethod must be CARD, UPI, NETBANKING, or CASH' });
-    }
-
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) return res.status(404).json({ message: 'Booking not found' });
-
-    if (booking.tripStatus === 'completed') {
-      return res.status(422).json({ message: 'Booking is already completed' });
-    }
-
-    if (booking.bookingStatus !== 'CONFIRMED') {
-      return res.status(422).json({ message: 'Only confirmed bookings can be completed' });
-    }
-
-    const advanceAmount = Number(booking.advanceAmount || 0);
-    const totalAmount = Number(booking.totalAmount || 0);
-    const remainingAmount = Math.max(totalAmount - advanceAmount, 0);
-
-    booking.tripStatus = 'completed';
-    booking.fullPaymentAmount = remainingAmount;
-    booking.fullPaymentMethod = paymentMethod;
-    booking.fullPaymentReceivedAt = new Date();
-    booking.paymentStatus = 'FULLY_PAID';
-    await booking.save();
-
-    await Car.findByIdAndUpdate(booking.car, { isAvailable: true });
+    const booking = await Booking.findById(req.params.id).populate('car', 'pricePerDay');
+    const { booking: completedBooking } = await finalizeBookingSettlement(booking, {
+      paymentMethod: req.body.paymentMethod,
+      now: new Date(),
+      finalizedAt: new Date(),
+    });
 
     res.json({
       message: 'Car returned, full payment received, and booking completed',
+      booking: completedBooking,
+    });
+  } catch (error) {
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to complete booking' : error.message;
+    res.status(status).json({ message });
+  }
+};
+
+exports.startBookingPickup = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    if (!isConfirmedBookingStatus(booking.bookingStatus)) {
+      return res.status(422).json({ message: 'Only confirmed bookings can start pickup' });
+    }
+
+    if (booking.tripStatus === 'completed' || String(booking.rentalStage || '').toLowerCase() === 'completed') {
+      return res.status(422).json({ message: 'Completed bookings cannot start pickup' });
+    }
+
+    if (booking.actualPickupTime || String(booking.rentalStage || '').toLowerCase() === 'active') {
+      return res.status(422).json({ message: 'Pickup is already marked for this booking' });
+    }
+
+    booking.actualPickupTime = new Date();
+    booking.rentalStage = 'Active';
+    booking.tripStatus = 'active';
+    if (!Number.isFinite(Number(booking.hourlyLateRate)) || Number(booking.hourlyLateRate) <= 0) {
+      const car = await Car.findById(booking.car).select('pricePerDay');
+      booking.hourlyLateRate = calculateHourlyLateRate(car?.pricePerDay);
+    }
+
+    await booking.save();
+
+    return res.json({
+      message: 'Pickup handover confirmed and rental is now active',
       booking,
     });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to complete booking' });
+    console.error('startBookingPickup error:', error);
+    return res.status(500).json({ message: 'Failed to mark pickup handover' });
   }
 };
 
@@ -193,6 +241,15 @@ exports.handleBookingBargain = async (req, res) => {
     if (action === 'accept') {
       booking.bargain.status = 'ACCEPTED';
       booking.totalAmount = booking.bargain.userPrice;
+      booking.finalAmount = booking.bargain.userPrice;
+
+      const breakdown = calculateAdvanceBreakdown(booking.finalAmount);
+      booking.advanceRequired = breakdown.advanceRequired;
+      booking.advanceAmount = breakdown.advanceRequired;
+      booking.remainingAmount = Math.max(
+        breakdown.finalAmount - Number(booking.advancePaid || breakdown.advanceRequired),
+        0
+      );
     } else if (action === 'counter') {
       const normalizedCounterPrice = Number(counterPrice);
       if (!Number.isFinite(normalizedCounterPrice) || normalizedCounterPrice <= 0) {
@@ -384,6 +441,7 @@ exports.getAllBookings = async (req, res) => {
       .populate('user', 'firstName lastName email')
       .sort({ createdAt: -1 });
 
+    await syncRentalStagesForBookings(bookings, { persist: true });
     res.json(bookings);
   } catch (error) {
     res.status(500).json({ message: 'Failed to load bookings' });

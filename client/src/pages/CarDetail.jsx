@@ -9,6 +9,7 @@ import { getErrorMessage } from '../api';
 import { getCarById } from '../services/carService';
 import { getCarReviews } from '../services/reviewService';
 import { createBookingRequest } from '../services/requestService';
+import { calculateAdvanceBreakdown, calculateTimeBasedRentalAmount } from '../utils/payment';
 
 const parseCarFeatures = (features) => {
   const parsed = [];
@@ -36,17 +37,61 @@ const parseCarFeatures = (features) => {
   return [...new Set(parsed.map((value) => String(value).trim()).filter(Boolean))];
 };
 
-const calculateBookingDays = (startDate, endDate) => {
-  if (!startDate || !endDate) return 0;
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const PAST_TOLERANCE_MS = 60 * 1000;
+const DEFAULT_PICKUP_BUFFER_MINUTES = 5;
+const TIME_HOURS = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'));
+const TIME_MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
+const TIME_PERIODS = ['AM', 'PM'];
 
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+const toLocalDateInputValue = (date = new Date()) => {
+  const timezoneAdjusted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return timezoneAdjusted.toISOString().slice(0, 10);
+};
 
-  const diffMs = end - start;
-  if (diffMs < 0) return 0;
+const to12HourParts = (date = new Date()) => {
+  const hours24 = date.getHours();
+  const period = hours24 >= 12 ? 'PM' : 'AM';
+  const hours12 = hours24 % 12 || 12;
 
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
+  return {
+    hour: String(hours12).padStart(2, '0'),
+    minute: String(date.getMinutes()).padStart(2, '0'),
+    period,
+  };
+};
+
+const getFutureRoundedDate = (bufferMinutes = DEFAULT_PICKUP_BUFFER_MINUTES) => {
+  const date = new Date();
+  date.setSeconds(0, 0);
+  date.setMinutes(date.getMinutes() + Math.max(Number(bufferMinutes || 0), 0));
+  return date;
+};
+
+const getDefaultTimeParts = () => to12HourParts(getFutureRoundedDate());
+
+const to24HourValue = (hourValue, minuteValue, periodValue) => {
+  const hour = Number(hourValue);
+  const minute = Number(minuteValue);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return '';
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return '';
+
+  let normalizedHour = hour % 12;
+  if (String(periodValue).toUpperCase() === 'PM') {
+    normalizedHour += 12;
+  }
+
+  return `${String(normalizedHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+};
+
+const buildIsoDateTime = (dateValue, hourValue, minuteValue, periodValue) => {
+  if (!dateValue) return '';
+  const normalized24Hour = to24HourValue(hourValue, minuteValue, periodValue);
+  if (!normalized24Hour) return '';
+
+  const parsed = new Date(`${dateValue}T${normalized24Hour}:00`);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString();
 };
 
 const ReviewSkeleton = () => (
@@ -107,8 +152,14 @@ const CarDetail = () => {
   const [carError, setCarError] = useState('');
   const [reviewsError, setReviewsError] = useState('');
 
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [pickupDate, setPickupDate] = useState('');
+  const [pickupHour, setPickupHour] = useState(() => getDefaultTimeParts().hour);
+  const [pickupMinute, setPickupMinute] = useState(() => getDefaultTimeParts().minute);
+  const [pickupPeriod, setPickupPeriod] = useState(() => getDefaultTimeParts().period);
+  const [dropDate, setDropDate] = useState('');
+  const [dropHour, setDropHour] = useState(() => getDefaultTimeParts().hour);
+  const [dropMinute, setDropMinute] = useState(() => getDefaultTimeParts().minute);
+  const [dropPeriod, setDropPeriod] = useState(() => getDefaultTimeParts().period);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState('');
   const [offerSuccessMsg, setOfferSuccessMsg] = useState('');
@@ -149,9 +200,26 @@ const CarDetail = () => {
     };
   }, [loadDetailData]);
 
-  const totalDays = useMemo(() => calculateBookingDays(fromDate, toDate), [fromDate, toDate]);
-  const totalAmount = useMemo(() => (car ? totalDays * Number(car.pricePerDay || 0) : 0), [car, totalDays]);
-  const advanceAmount = useMemo(() => Math.round(totalAmount * 0.3), [totalAmount]);
+  const todayDate = useMemo(() => toLocalDateInputValue(new Date()), []);
+  const pickupDateTimeIso = useMemo(
+    () => buildIsoDateTime(pickupDate, pickupHour, pickupMinute, pickupPeriod),
+    [pickupDate, pickupHour, pickupMinute, pickupPeriod],
+  );
+  const dropDateTimeIso = useMemo(
+    () => buildIsoDateTime(dropDate, dropHour, dropMinute, dropPeriod),
+    [dropDate, dropHour, dropMinute, dropPeriod],
+  );
+
+  const { days: totalDays, amount: totalAmount } = useMemo(
+    () => calculateTimeBasedRentalAmount(pickupDateTimeIso, dropDateTimeIso, car?.pricePerDay),
+    [pickupDateTimeIso, dropDateTimeIso, car?.pricePerDay],
+  );
+  const formattedBillableDays = useMemo(() => {
+    if (!Number.isFinite(totalDays) || totalDays <= 0) return '0';
+    return Number.isInteger(totalDays) ? String(totalDays) : totalDays.toFixed(1);
+  }, [totalDays]);
+  const quoteBreakdown = useMemo(() => calculateAdvanceBreakdown(totalAmount), [totalAmount]);
+  const advancePercent = useMemo(() => Math.round(quoteBreakdown.advanceRate * 100), [quoteBreakdown.advanceRate]);
   const features = useMemo(() => parseCarFeatures(car?.features), [car?.features]);
 
   const averageRating = useMemo(() => {
@@ -169,8 +237,8 @@ const CarDetail = () => {
       return;
     }
 
-    if (!fromDate || !toDate) {
-      setBookingError('Please select pickup and return dates.');
+    if (!pickupDate || !dropDate || !pickupHour || !pickupMinute || !pickupPeriod || !dropHour || !dropMinute || !dropPeriod) {
+      setBookingError('Please select pickup and drop date/time.');
       return;
     }
 
@@ -179,8 +247,26 @@ const CarDetail = () => {
       return;
     }
 
-    if (new Date(toDate) < new Date(fromDate)) {
-      setBookingError('Return date must be same as or after pickup date.');
+    if (!pickupDateTimeIso || !dropDateTimeIso) {
+      setBookingError('Invalid pickup/drop date and time.');
+      return;
+    }
+
+    const pickupDateTime = new Date(pickupDateTimeIso);
+    const dropDateTime = new Date(dropDateTimeIso);
+
+    if (pickupDateTime.getTime() < Date.now() - PAST_TOLERANCE_MS) {
+      setBookingError('Pickup date and time cannot be in the past.');
+      return;
+    }
+
+    if (dropDateTime <= pickupDateTime) {
+      setBookingError('Drop date and time must be after pickup date and time.');
+      return;
+    }
+
+    if (dropDateTime.getTime() - pickupDateTime.getTime() < ONE_HOUR_MS) {
+      setBookingError('Minimum rental duration is 1 hour.');
       return;
     }
 
@@ -193,8 +279,8 @@ const CarDetail = () => {
       setBookingLoading(true);
       await createBookingRequest({
         carId: car._id,
-        fromDate,
-        toDate,
+        pickupDateTime: pickupDateTimeIso,
+        dropDateTime: dropDateTimeIso,
       });
       navigate('/my-bookings');
     } catch (error) {
@@ -369,16 +455,16 @@ const CarDetail = () => {
                 </p>
               </div>
               <p className="text-xs text-gray-500 text-right">
-                {car.pricePerDay} / day x {totalDays || 0} day(s)
+                {car.pricePerDay} / day x {formattedBillableDays} billed day(s)
               </p>
             </div>
 
             <div className="rounded-lg border border-borderColor bg-light p-4 text-sm">
               <p className="font-medium text-gray-700">Advance Payment Required</p>
               <p className="text-gray-500 mt-1">
-                Pay <span className="font-semibold text-gray-700">30%</span> advance before final admin approval.
+                Pay <span className="font-semibold text-gray-700">{advancePercent}%</span> advance to confirm booking.
               </p>
-              <p className="text-xs text-gray-400 mt-1">Refundable if admin rejects the booking request.</p>
+              <p className="text-xs text-gray-400 mt-1">Dynamic advance is calculated from your final quoted amount.</p>
             </div>
 
             {admin ? (
@@ -387,17 +473,23 @@ const CarDetail = () => {
               </div>
             ) : null}
 
+            <div className="rounded-lg border border-borderColor bg-light p-3 text-xs text-gray-500">
+              Time-based billing: 24h = 1 day, under 12h extra = 0.5 day, 12h+ extra = 1 day.
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3">
               <div>
                 <label className="text-sm text-gray-600">Pickup Date</label>
                 <input
                   type="date"
-                  value={fromDate}
-                  min={new Date().toISOString().split('T')[0]}
+                  value={pickupDate}
+                  min={todayDate}
                   onChange={(event) => {
-                    const nextFromDate = event.target.value;
-                    setFromDate(nextFromDate);
-                    if (toDate && nextFromDate > toDate) setToDate(nextFromDate);
+                    const nextPickupDate = event.target.value;
+                    setPickupDate(nextPickupDate);
+                    if (dropDate && nextPickupDate > dropDate) {
+                      setDropDate(nextPickupDate);
+                    }
                   }}
                   className="border border-borderColor px-3 py-2 rounded-lg w-full mt-1"
                   disabled={admin}
@@ -406,16 +498,100 @@ const CarDetail = () => {
               </div>
 
               <div>
-                <label className="text-sm text-gray-600">Return Date</label>
+                <label className="text-sm text-gray-600">Pickup Time (12h)</label>
+                <div className="grid grid-cols-3 gap-2 mt-1">
+                  <select
+                    value={pickupHour}
+                    onChange={(event) => setPickupHour(event.target.value)}
+                    disabled={admin || !pickupDate}
+                    className="border border-borderColor px-2 py-2 rounded-lg w-full"
+                  >
+                    {TIME_HOURS.map((hour) => (
+                      <option key={`pickup-hour-${hour}`} value={hour}>
+                        {hour}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={pickupMinute}
+                    onChange={(event) => setPickupMinute(event.target.value)}
+                    disabled={admin || !pickupDate}
+                    className="border border-borderColor px-2 py-2 rounded-lg w-full"
+                  >
+                    {TIME_MINUTES.map((minute) => (
+                      <option key={`pickup-minute-${minute}`} value={minute}>
+                        {minute}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={pickupPeriod}
+                    onChange={(event) => setPickupPeriod(event.target.value)}
+                    disabled={admin || !pickupDate}
+                    className="border border-borderColor px-2 py-2 rounded-lg w-full"
+                  >
+                    {TIME_PERIODS.map((period) => (
+                      <option key={`pickup-period-${period}`} value={period}>
+                        {period}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600">Drop Date</label>
                 <input
                   type="date"
-                  value={toDate}
-                  min={fromDate || new Date().toISOString().split('T')[0]}
-                  onChange={(event) => setToDate(event.target.value)}
-                  disabled={admin || !fromDate}
+                  value={dropDate}
+                  min={pickupDate || todayDate}
+                  onChange={(event) => setDropDate(event.target.value)}
+                  disabled={admin || !pickupDate}
                   className="border border-borderColor px-3 py-2 rounded-lg w-full mt-1"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600">Drop Time (12h)</label>
+                <div className="grid grid-cols-3 gap-2 mt-1">
+                  <select
+                    value={dropHour}
+                    onChange={(event) => setDropHour(event.target.value)}
+                    disabled={admin || !dropDate}
+                    className="border border-borderColor px-2 py-2 rounded-lg w-full"
+                  >
+                    {TIME_HOURS.map((hour) => (
+                      <option key={`drop-hour-${hour}`} value={hour}>
+                        {hour}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={dropMinute}
+                    onChange={(event) => setDropMinute(event.target.value)}
+                    disabled={admin || !dropDate}
+                    className="border border-borderColor px-2 py-2 rounded-lg w-full"
+                  >
+                    {TIME_MINUTES.map((minute) => (
+                      <option key={`drop-minute-${minute}`} value={minute}>
+                        {minute}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={dropPeriod}
+                    onChange={(event) => setDropPeriod(event.target.value)}
+                    disabled={admin || !dropDate}
+                    className="border border-borderColor px-2 py-2 rounded-lg w-full"
+                  >
+                    {TIME_PERIODS.map((period) => (
+                      <option key={`drop-period-${period}`} value={period}>
+                        {period}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -424,8 +600,8 @@ const CarDetail = () => {
             {!admin ? (
               <MakeOfferForm
                 carId={car._id}
-                fromDate={fromDate}
-                toDate={toDate}
+                fromDate={pickupDateTimeIso}
+                toDate={dropDateTimeIso}
                 originalPrice={totalAmount}
                 onSuccess={() => {
                   setOfferSuccessMsg('Offer sent successfully. Track it in My Bookings.');
@@ -457,9 +633,15 @@ const CarDetail = () => {
                 </span>
               </p>
               <p className="flex justify-between">
-                <span>Advance (30%)</span>
+                <span>Advance Required ({advancePercent}%)</span>
                 <span>
-                  {currency} {advanceAmount || 0}
+                  {currency} {quoteBreakdown.advanceRequired || 0}
+                </span>
+              </p>
+              <p className="flex justify-between">
+                <span>Remaining Amount</span>
+                <span>
+                  {currency} {quoteBreakdown.remainingAmount || 0}
                 </span>
               </p>
             </div>

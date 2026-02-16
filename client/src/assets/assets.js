@@ -101,6 +101,7 @@ export const menuLinks = [
   { name: 'Home', path: '/' },
   { name: 'Cars', path: '/cars' },
   { name: 'My Bookings', path: '/my-bookings' },
+  { name: 'My Rental Status', path: '/my-rental-status' },
 ];
 
 export const ownerMenuLinks = [
@@ -119,6 +120,7 @@ export const ownerMenuLinks = [
   { name: 'Manage Offers', path: '/owner/offers', icon: cautionIcon, coloredIcon: cautionIconColored },
   { name: 'Manage Reviews', path: '/owner/reviews', icon: star_icon, coloredIcon: starIconColored },
   { name: 'Active Rentals', path: '/owner/bookings', icon: booking_icon, coloredIcon: booking_colored_icon },
+  { name: 'Rental Tracking', path: '/owner/rental-tracking', icon: listIcon, coloredIcon: listIconColored },
   {
     name: 'Manage Users',
     path: '/owner/users',

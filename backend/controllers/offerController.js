@@ -1,15 +1,27 @@
 const Offer = require('../models/Offer');
 const Car = require('../models/Car');
 const Request = require('../models/Request');
+const { calculateAdvanceBreakdown, isAdvancePaidStatus } = require('../utils/paymentUtils');
+const mongoose = require('mongoose');
+const {
+  normalizeStoredDateTime,
+  validateRentalWindow,
+  calculateTimeBasedRentalAmount,
+  getTimeBasedBillingDays,
+} = require('../utils/rentalDateUtils');
 
 const MAX_OFFER_ATTEMPTS = 3;
 const TERMINAL_STATUSES = new Set(['accepted', 'rejected', 'expired']);
 
-const calculateDays = (fromDate, toDate) => {
-  return Math.ceil((new Date(toDate) - new Date(fromDate)) / (1000 * 60 * 60 * 24)) + 1;
-};
-
 const isTerminalStatus = (status) => TERMINAL_STATUSES.has(status);
+
+const resolveObjectId = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (mongoose.isValidObjectId(value)) return String(value);
+  if (value._id && mongoose.isValidObjectId(value._id)) return String(value._id);
+  return '';
+};
 
 const normalizeUserOfferHistory = (offer) => {
   const history = Array.isArray(offer.userOfferHistory) ? [...offer.userOfferHistory] : [];
@@ -31,7 +43,25 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     return { error: { status: 422, message: 'Final offer amount is invalid' } };
   }
 
-  const car = await Car.findById(offer.car);
+  const carId = resolveObjectId(offer.car);
+  const userId = resolveObjectId(offer.user);
+  if (!mongoose.isValidObjectId(carId) || !mongoose.isValidObjectId(userId)) {
+    return { error: { status: 422, message: 'Offer references are invalid' } };
+  }
+
+  const normalizedPickupDateTime = normalizeStoredDateTime(offer.fromDate);
+  const normalizedDropDateTime = normalizeStoredDateTime(offer.toDate, {
+    treatMidnightAsDropBoundary: true,
+  });
+  const rentalWindowError = validateRentalWindow(normalizedPickupDateTime, normalizedDropDateTime, {
+    minDurationHours: 1,
+    now: new Date(),
+  });
+  if (rentalWindowError) {
+    return { error: { status: 422, message: rentalWindowError } };
+  }
+
+  const car = await Car.findById(carId);
   if (!car) {
     return { error: { status: 404, message: 'Car not found' } };
   }
@@ -40,11 +70,11 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     return { error: { status: 422, message: 'Car is no longer available' } };
   }
 
-  const days = calculateDays(offer.fromDate, offer.toDate);
+  const days = getTimeBasedBillingDays(normalizedPickupDateTime, normalizedDropDateTime);
   if (!Number.isFinite(days) || days <= 0) {
     return { error: { status: 422, message: 'Invalid booking duration' } };
   }
-  const advanceAmount = Math.round(finalAmount * 0.3);
+  const breakdown = calculateAdvanceBreakdown(finalAmount);
 
   const lockedBargain = {
     userAttempts: offer.offerCount,
@@ -54,30 +84,44 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
   };
 
   const existingPendingRequest = await Request.findOne({
-    user: offer.user,
-    car: offer.car,
-    fromDate: offer.fromDate,
-    toDate: offer.toDate,
+    user: userId,
+    car: carId,
+    fromDate: normalizedPickupDateTime,
+    toDate: normalizedDropDateTime,
     status: 'pending',
   });
 
   if (existingPendingRequest) {
-    const previousTotal = Number(existingPendingRequest.totalAmount || 0);
-    const previousAdvance = Number(existingPendingRequest.advanceAmount || 0);
+    const previousTotal = Number(existingPendingRequest.finalAmount || existingPendingRequest.totalAmount || 0);
+    const previousAdvance = Number(
+      existingPendingRequest.advanceRequired || existingPendingRequest.advanceAmount || 0,
+    );
     const shouldKeepPaidState =
-      existingPendingRequest.paymentStatus === 'PAID' &&
+      isAdvancePaidStatus(existingPendingRequest.paymentStatus) &&
       previousTotal === finalAmount &&
-      previousAdvance === advanceAmount;
+      previousAdvance === breakdown.advanceRequired;
 
     existingPendingRequest.days = days;
-    existingPendingRequest.totalAmount = finalAmount;
-    existingPendingRequest.advanceAmount = advanceAmount;
+    existingPendingRequest.fromDate = normalizedPickupDateTime;
+    existingPendingRequest.toDate = normalizedDropDateTime;
+    existingPendingRequest.pickupDateTime = normalizedPickupDateTime;
+    existingPendingRequest.dropDateTime = normalizedDropDateTime;
+    existingPendingRequest.gracePeriodHours = 1;
+    existingPendingRequest.totalAmount = breakdown.finalAmount;
+    existingPendingRequest.finalAmount = breakdown.finalAmount;
+    existingPendingRequest.advanceAmount = breakdown.advanceRequired;
+    existingPendingRequest.advanceRequired = breakdown.advanceRequired;
     existingPendingRequest.bargain = lockedBargain;
     if (!shouldKeepPaidState) {
       existingPendingRequest.paymentStatus = 'UNPAID';
       existingPendingRequest.paymentMethod = 'NONE';
       existingPendingRequest.paymentReference = '';
       existingPendingRequest.advancePaidAt = null;
+      existingPendingRequest.advancePaid = 0;
+      existingPendingRequest.remainingAmount = breakdown.remainingAmount;
+    } else {
+      existingPendingRequest.advancePaid = breakdown.advanceRequired;
+      existingPendingRequest.remainingAmount = breakdown.remainingAmount;
     }
     await existingPendingRequest.save();
 
@@ -85,13 +129,20 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
   }
 
   const request = await Request.create({
-    user: offer.user,
-    car: offer.car,
-    fromDate: offer.fromDate,
-    toDate: offer.toDate,
+    user: userId,
+    car: carId,
+    fromDate: normalizedPickupDateTime,
+    toDate: normalizedDropDateTime,
+    pickupDateTime: normalizedPickupDateTime,
+    dropDateTime: normalizedDropDateTime,
+    gracePeriodHours: 1,
     days,
-    totalAmount: finalAmount,
-    advanceAmount,
+    totalAmount: breakdown.finalAmount,
+    finalAmount: breakdown.finalAmount,
+    advanceAmount: breakdown.advanceRequired,
+    advanceRequired: breakdown.advanceRequired,
+    advancePaid: 0,
+    remainingAmount: breakdown.remainingAmount,
     paymentStatus: 'UNPAID',
     paymentMethod: 'NONE',
     bargain: lockedBargain,
@@ -118,8 +169,10 @@ exports.createOffer = async (req, res) => {
       return res.status(422).json({ message: 'Car is currently unavailable' });
     }
 
-    const days = calculateDays(fromDate, toDate);
-    const originalPrice = days * car.pricePerDay;
+    const { days, amount: originalPrice } = calculateTimeBasedRentalAmount(fromDate, toDate, car.pricePerDay);
+    if (!Number.isFinite(days) || days <= 0) {
+      return res.status(422).json({ message: 'Invalid booking duration' });
+    }
 
     const existingOpenOffer = await Offer.findOne({
       car: carId,
@@ -170,13 +223,13 @@ exports.getMyOffers = async (req, res) => {
 exports.respondToCounterOffer = async (req, res) => {
   try {
     const { action, offeredPrice, message } = req.body;
-    const offer = await Offer.findById(req.params.id).populate('car');
+    const offer = await Offer.findById(req.params.id);
 
     if (!offer) {
       return res.status(404).json({ message: 'Offer not found' });
     }
 
-    if (offer.user.toString() !== req.user._id.toString()) {
+    if (String(offer.user) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Not allowed' });
     }
 
@@ -218,6 +271,11 @@ exports.respondToCounterOffer = async (req, res) => {
       return res.status(422).json({ message: 'You can counter only a countered offer' });
     }
 
+    const normalizedOfferedPrice = Number(offeredPrice);
+    if (!Number.isFinite(normalizedOfferedPrice) || normalizedOfferedPrice <= 0) {
+      return res.status(422).json({ message: 'offeredPrice must be a positive number for counter action' });
+    }
+
     const history = normalizeUserOfferHistory(offer);
     if (history.length >= MAX_OFFER_ATTEMPTS) {
       return res.status(422).json({
@@ -225,8 +283,8 @@ exports.respondToCounterOffer = async (req, res) => {
       });
     }
 
-    offer.offeredPrice = offeredPrice;
-    history.push(offeredPrice);
+    offer.offeredPrice = normalizedOfferedPrice;
+    history.push(normalizedOfferedPrice);
     offer.userOfferHistory = history;
     offer.message = message || offer.message;
     offer.status = 'pending';
@@ -235,7 +293,10 @@ exports.respondToCounterOffer = async (req, res) => {
 
     return res.json({ message: 'Counter offer submitted', offer });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to respond to offer' });
+    console.error('respondToCounterOffer error:', error);
+    const status = Number(error?.status || error?.statusCode) || 500;
+    const safeMessage = status >= 500 ? 'Failed to respond to offer' : (error?.message || 'Offer response failed');
+    return res.status(status).json({ message: safeMessage });
   }
 };
 

@@ -6,6 +6,7 @@ import Home from './pages/Home';
 import CarDetail from './pages/CarDetail';
 import Cars from './pages/Cars';
 import MyBookings from './pages/MyBookings';
+import MyRentalStatus from './pages/MyRentalStatus';
 import Footer from './components/Footer';
 import Layout from './features/admin/pages/Layout';
 import Dashboard from './features/admin/pages/Dashboard';
@@ -20,6 +21,7 @@ import AdminProfile from './features/admin/pages/AdminProfile';
 import CompleteProfile from './pages/CompleteProfile';
 import ManageOffers from './features/admin/pages/ManageOffers';
 import ManageReviews from './features/admin/pages/ManageReviews';
+import RentalTracking from './features/admin/pages/RentalTracking';
 import StaticInfoPage from './pages/StaticInfoPage';
 import { isLoggedIn, isAdmin } from './utils/auth';
 import { Navigate } from 'react-router-dom';
@@ -35,7 +37,7 @@ const AnimatedPage = motion.div;
 const App = () => {
   const [showLogin, setShowLogin] = useState(false);
   const location = useLocation();
-  const isOwnerPath = location.pathname.startsWith('/owner');
+  const isOwnerPath = location.pathname.startsWith('/owner') || location.pathname.startsWith('/admin');
   const loggedIn = isLoggedIn();
   const admin = isAdmin();
 
@@ -63,6 +65,10 @@ const App = () => {
               element={loggedIn && !admin ? <MyBookings /> : <Navigate to="/" replace />}
             />
             <Route
+              path="/my-rental-status"
+              element={loggedIn && !admin ? <MyRentalStatus /> : <Navigate to="/" replace />}
+            />
+            <Route
               path="/my-profile"
               element={loggedIn && !admin ? <UserProfile /> : <Navigate to="/" replace />}
             />
@@ -84,9 +90,15 @@ const App = () => {
               <Route path="offers" element={<ManageOffers />} />
               <Route path="reviews" element={<ManageReviews />} />
               <Route path="bookings" element={<AdminBookings />} />
+              <Route path="rental-tracking" element={<RentalTracking />} />
               <Route path="users" element={<ManageUsers />} />
               <Route path="profile" element={<AdminProfile />} />
             </Route>
+
+            <Route
+              path="/admin/rental-tracking"
+              element={admin ? <Navigate to="/owner/rental-tracking" replace /> : <Navigate to="/" replace />}
+            />
           </Routes>
         </AnimatedPage>
       </AnimatePresence>

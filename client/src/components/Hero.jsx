@@ -45,8 +45,8 @@ const Hero = () => {
             </h1>
 
             <p className="mt-5 text-base md:text-lg text-slate-600 max-w-2xl">
-              Book instantly, negotiate up to 3 rounds, and pay only 30% advance before final admin
-              approval.
+              Book instantly, negotiate up to 3 rounds, and pay a dynamic advance (20% to 30%) based on your final
+              booking amount.
             </p>
 
             <form
@@ -105,7 +105,7 @@ const Hero = () => {
             <div className="mt-4 grid grid-cols-3 gap-3 max-w-xl">
               <div className="rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500">Advance</p>
-                <p className="text-sm font-semibold text-slate-800 mt-0.5">30%</p>
+                <p className="text-sm font-semibold text-slate-800 mt-0.5">20% - 30%</p>
               </div>
               <div className="rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500">Negotiation</p>
@@ -121,7 +121,7 @@ const Hero = () => {
           <ScrollReveal className="w-full" direction="right" delay={90}>
             <div className="relative mx-auto max-w-147.5 rounded-[28px] border border-borderColor bg-white/85 backdrop-blur p-4 md:p-6 shadow-[0_16px_44px_rgba(37,99,235,0.16)]">
               <div className="absolute top-5 right-5 text-[11px] px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">
-                30% Advance
+                Dynamic Advance
               </div>
               <img
                 src={assets.banner_car_image}

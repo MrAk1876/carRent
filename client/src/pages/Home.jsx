@@ -26,9 +26,9 @@ const Home = () => {
             </div>
             <div className="rounded-xl bg-light p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Step 3</p>
-              <p className="mt-1 font-semibold text-slate-800">Pay 30% Advance & Confirm</p>
+              <p className="mt-1 font-semibold text-slate-800">Pay Dynamic Advance & Confirm</p>
               <p className="text-sm text-slate-600 mt-1">
-                Admin approves after payment and your booking gets locked.
+                Pay 20% to 30% advance by amount slab to lock your booking.
               </p>
             </div>
           </div>
