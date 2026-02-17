@@ -3,11 +3,33 @@
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
   const STATIC_TENANT_CODE = String(import.meta.env.VITE_TENANT_CODE || '').trim();
+  const REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 25000);
+  const MAX_RETRY_COUNT = Number(import.meta.env.VITE_API_RETRY_COUNT || 2);
+  const RETRY_BASE_DELAY_MS = Number(import.meta.env.VITE_API_RETRY_DELAY_MS || 450);
+  const RETRYABLE_METHODS = new Set(['get', 'head', 'options']);
 
   const API = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 15000,
+    timeout: REQUEST_TIMEOUT_MS,
   });
+
+  const wait = (durationMs) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, Math.max(Number(durationMs) || 0, 0));
+    });
+
+  const isRetriableError = (error) => {
+    const statusCode = Number(error?.response?.status || 0);
+    const code = String(error?.code || '').toUpperCase();
+
+    if (code === 'ECONNABORTED' || code === 'ETIMEDOUT' || code === 'ERR_NETWORK') {
+      return true;
+    }
+
+    if (!error?.response) return true;
+    if ([408, 425, 429, 500, 502, 503, 504].includes(statusCode)) return true;
+    return false;
+  };
 
   API.interceptors.request.use((req) => {
     const token = localStorage.getItem("token");
@@ -76,7 +98,27 @@
 
   API.interceptors.response.use(
     (response) => response,
-    (error) => {
+    async (error) => {
+      if (String(error?.code || '').toUpperCase() === 'ERR_CANCELED') {
+        return Promise.reject(error);
+      }
+
+      const requestConfig = error?.config || {};
+      const method = String(requestConfig?.method || 'get').toLowerCase();
+      const canRetryMethod = RETRYABLE_METHODS.has(method);
+      const retryEnabled = requestConfig?.retry !== false && canRetryMethod;
+      const maxRetries = Number.isFinite(Number(requestConfig?.maxRetries))
+        ? Math.max(Number(requestConfig.maxRetries), 0)
+        : Math.max(MAX_RETRY_COUNT, 0);
+      const retryCount = Number(requestConfig.__retryCount || 0);
+
+      if (retryEnabled && isRetriableError(error) && retryCount < maxRetries) {
+        const delayMs = RETRY_BASE_DELAY_MS * 2 ** retryCount;
+        requestConfig.__retryCount = retryCount + 1;
+        await wait(delayMs);
+        return API(requestConfig);
+      }
+
       const message = normalizeApiErrorMessage(error);
       error.friendlyMessage = message;
 

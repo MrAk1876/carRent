@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import API, { getErrorMessage } from '../api';
 import Title from '../components/Title';
 import LiveLateFeeSummary from '../components/ui/LiveLateFeeSummary';
 import LiveStageCountdown from '../components/ui/LiveStageCountdown';
 import UserOfferList from '../features/offers/components/UserOfferList';
 import useNotify from '../hooks/useNotify';
+import useSmartPolling from '../hooks/useSmartPolling';
 import {
   calculateAdvanceBreakdown,
   getNormalizedStatusKey,
@@ -82,24 +83,28 @@ const MyBookings = () => {
     return parsed.toLocaleString();
   };
 
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async ({ silent = false, suppressErrors = false, showErrorToast = false } = {}) => {
     try {
-      setLoading(true);
-      setError('');
-      setOffersError('');
-      setReviewsError('');
+      if (!silent) {
+        setLoading(true);
+        setError('');
+        setOffersError('');
+        setReviewsError('');
+      }
 
       const [dashboardResult, offersResult, reviewsResult] = await Promise.allSettled([
-        API.get('/user/dashboard'),
-        API.get('/offers/my'),
-        API.get('/reviews/my'),
+        API.get('/user/dashboard', { showErrorToast }),
+        API.get('/offers/my', { showErrorToast }),
+        API.get('/reviews/my', { showErrorToast }),
       ]);
 
       if (dashboardResult.status === 'fulfilled') {
         setBookings(dashboardResult.value.data.bookings || []);
         setRequests(dashboardResult.value.data.requests || []);
       } else {
-        setError('Failed to load booking data');
+        if (!suppressErrors) {
+          setError('Failed to load booking data');
+        }
         setBookings([]);
         setRequests([]);
       }
@@ -108,7 +113,9 @@ const MyBookings = () => {
         setOffers(offersResult.value.data || []);
       } else {
         setOffers([]);
-        setOffersError('Offer negotiations could not be loaded right now.');
+        if (!suppressErrors) {
+          setOffersError('Offer negotiations could not be loaded right now.');
+        }
       }
 
       if (reviewsResult.status === 'fulfilled') {
@@ -123,21 +130,32 @@ const MyBookings = () => {
         setReviewsByBookingId(byBookingId);
       } else {
         setReviewsByBookingId({});
-        setReviewsError('Reviews could not be loaded right now.');
+        if (!suppressErrors) {
+          setReviewsError('Reviews could not be loaded right now.');
+        }
       }
     } catch {
-      setError('Failed to load booking data');
+      if (!suppressErrors) {
+        setError('Failed to load booking data');
+      }
       setBookings([]);
       setRequests([]);
       setReviewsByBookingId({});
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchBookings();
-  }, []);
+  }, [fetchBookings]);
+
+  useSmartPolling(
+    () => fetchBookings({ silent: true, suppressErrors: true, showErrorToast: false }),
+    { intervalMs: 20000, enabled: true },
+  );
 
   const allItems = [
     ...requests.map((r) => ({ ...r, type: 'request' })),

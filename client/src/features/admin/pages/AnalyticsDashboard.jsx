@@ -239,7 +239,12 @@ const AnalyticsDashboard = () => {
         params.endDate = nextCustomEndDate || undefined;
       }
 
-      const response = await API.get('/admin/analytics', { params });
+      const response = await API.get('/admin/analytics', {
+        params,
+        showErrorToast: false,
+        timeout: 45000,
+        maxRetries: 1,
+      });
       const payload = response.data || {};
 
       const nextBranches = Array.isArray(payload.branches) ? payload.branches : [];

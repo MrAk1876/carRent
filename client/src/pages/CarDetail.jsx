@@ -9,6 +9,7 @@ import { getErrorMessage } from '../api';
 import { getCarById } from '../services/carService';
 import { getCarReviews } from '../services/reviewService';
 import { createBookingRequest } from '../services/requestService';
+import useNotify from '../hooks/useNotify';
 import {
   calculateAdvanceBreakdown,
   calculateTimeBasedRentalAmount,
@@ -193,6 +194,7 @@ const CarDetail = () => {
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const { id } = useParams();
   const navigate = useNavigate();
+  const notify = useNotify();
   const admin = isAdmin();
 
   const [car, setCar] = useState(null);
@@ -401,6 +403,7 @@ const CarDetail = () => {
         dropDateTime: dropDateTimeIso,
         useSubscription,
       });
+      notify.success('Car booked successfully. Complete advance payment from My Bookings.');
       navigate('/my-bookings');
     } catch (error) {
       setBookingError(getErrorMessage(error, 'Booking failed. Please try again.'));

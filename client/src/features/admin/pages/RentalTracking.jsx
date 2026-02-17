@@ -4,6 +4,7 @@ import LiveLateFeeSummary from '../../../components/ui/LiveLateFeeSummary';
 import LiveStageCountdown from '../../../components/ui/LiveStageCountdown';
 import { calculateLiveLateMetrics, getGraceDeadlineMs, useCountdown } from '../../../hooks/useCountdown';
 import useNotify from '../../../hooks/useNotify';
+import useSmartPolling from '../../../hooks/useSmartPolling';
 import { downloadBookingInvoicePdf } from '../../../services/bookingService';
 import {
   hasPickupInspection,
@@ -535,23 +536,36 @@ const RentalTracking = () => {
     completed: PAGE_SIZE,
   });
 
-  const loadBookings = useCallback(async () => {
+  const loadBookings = useCallback(async ({ silent = false, suppressErrors = false, showErrorToast = false } = {}) => {
     try {
-      setLoading(true);
-      const response = await API.get('/admin/bookings', { showErrorToast: false });
+      if (!silent) {
+        setLoading(true);
+      }
+      const response = await API.get('/admin/bookings', { showErrorToast });
       setBookings(Array.isArray(response.data) ? response.data : []);
-      setErrorMsg('');
+      if (!silent) {
+        setErrorMsg('');
+      }
     } catch (error) {
-      const safeMessage = getErrorMessage(error, 'Failed to load rental tracking data');
-      setErrorMsg(safeMessage);
+      if (!suppressErrors) {
+        const safeMessage = getErrorMessage(error, 'Failed to load rental tracking data');
+        setErrorMsg(safeMessage);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     loadBookings();
   }, [loadBookings]);
+
+  useSmartPolling(
+    () => loadBookings({ silent: true, suppressErrors: true, showErrorToast: false }),
+    { intervalMs: 15000, enabled: true },
+  );
 
   const sectionedBookings = useMemo(() => {
     const normalized = Array.isArray(bookings) ? bookings : [];

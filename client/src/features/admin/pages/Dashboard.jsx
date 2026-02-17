@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { assets } from '../../../assets/assets';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
+import useSmartPolling from '../../../hooks/useSmartPolling';
 import {
   getNormalizedStatusKey,
   isConfirmedBookingStatus,
@@ -55,15 +56,17 @@ const Dashboard = () => {
     return 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
-  const loadDashboard = async () => {
+  const loadDashboard = useCallback(async ({ silent = false, suppressErrors = false } = {}) => {
     try {
-      setLoading(true);
-      setErrorMsg('');
+      if (!silent) {
+        setLoading(true);
+        setErrorMsg('');
+      }
       const params = selectedBranchId ? { branchId: selectedBranchId } : undefined;
       const [bookingsRes, carsRes, driversRes] = await Promise.all([
-        API.get('/admin/bookings', { params }),
-        API.get('/admin/cars', { params }),
-        API.get('/admin/drivers', { params }).catch(() => ({ data: { drivers: [], summary: {} } })),
+        API.get('/admin/bookings', { params, showErrorToast: false }),
+        API.get('/admin/cars', { params, showErrorToast: false }),
+        API.get('/admin/drivers', { params, showErrorToast: false }).catch(() => ({ data: { drivers: [], summary: {} } })),
       ]);
 
       const bookings = Array.isArray(bookingsRes.data) ? bookingsRes.data : [];
@@ -130,16 +133,20 @@ const Dashboard = () => {
         revenueTrend,
       });
     } catch (error) {
-      setErrorMsg(getErrorMessage(error, 'Failed to load dashboard data'));
+      if (!suppressErrors) {
+        setErrorMsg(getErrorMessage(error, 'Failed to load dashboard data'));
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  };
+  }, [selectedBranchId]);
 
   useEffect(() => {
     const loadBranchOptions = async () => {
       try {
-        const response = await API.get('/admin/branch-options');
+        const response = await API.get('/admin/branch-options', { showErrorToast: false });
         const branches = Array.isArray(response.data?.branches) ? response.data.branches : [];
         setBranchOptions(branches);
       } catch {
@@ -152,7 +159,12 @@ const Dashboard = () => {
 
   useEffect(() => {
     loadDashboard();
-  }, [selectedBranchId]);
+  }, [loadDashboard]);
+
+  useSmartPolling(
+    () => loadDashboard({ silent: true, suppressErrors: true }),
+    { intervalMs: 20000, enabled: true },
+  );
 
   return (
     <div className="admin-section-page px-3.5 pt-6 md:px-10 md:pt-10 pb-8 md:pb-10">
@@ -172,6 +184,13 @@ const Dashboard = () => {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => loadDashboard()}
+                  className="px-3 py-1 rounded-full text-xs bg-white border border-borderColor hover:bg-slate-50"
+                >
+                  Refresh
+                </button>
                 <select
                   value={selectedBranchId}
                   onChange={(event) => setSelectedBranchId(event.target.value)}

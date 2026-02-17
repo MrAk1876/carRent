@@ -1,15 +1,25 @@
 let messageIdCounter = 0;
-let lastMessageSignature = '';
-let lastMessageTimestamp = 0;
+const recentMessageTimestamps = new Map();
+const DUPLICATE_WINDOW_MS = 4000;
 const listeners = new Set();
 
 const shouldSkipDuplicate = (type, message) => {
   const signature = `${type}:${String(message || '').trim()}`;
   const now = Date.now();
-  const isDuplicate = signature === lastMessageSignature && now - lastMessageTimestamp < 800;
-  if (isDuplicate) return true;
-  lastMessageSignature = signature;
-  lastMessageTimestamp = now;
+  const lastSeenAt = Number(recentMessageTimestamps.get(signature) || 0);
+  if (lastSeenAt && now - lastSeenAt < DUPLICATE_WINDOW_MS) {
+    return true;
+  }
+
+  recentMessageTimestamps.set(signature, now);
+
+  // Best-effort cleanup for stale signatures.
+  for (const [key, seenAt] of recentMessageTimestamps.entries()) {
+    if (now - seenAt > DUPLICATE_WINDOW_MS * 2) {
+      recentMessageTimestamps.delete(key);
+    }
+  }
+
   return false;
 };
 

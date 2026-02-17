@@ -5,6 +5,7 @@ import LiveStageCountdown from '../components/ui/LiveStageCountdown';
 import Title from '../components/Title';
 import { calculateLiveLateMetrics, getGraceDeadlineMs, useCountdown } from '../hooks/useCountdown';
 import useNotify from '../hooks/useNotify';
+import useSmartPolling from '../hooks/useSmartPolling';
 import {
   downloadBookingInvoicePdf,
   getUserRentalDashboard,
@@ -393,24 +394,37 @@ const MyRentalStatus = () => {
   const [paymentMethodById, setPaymentMethodById] = useState({});
   const [loadingActionId, setLoadingActionId] = useState('');
 
-  const loadRentalStatus = useCallback(async () => {
+  const loadRentalStatus = useCallback(async ({ silent = false, suppressErrors = false, showErrorToast = false } = {}) => {
     try {
-      setLoading(true);
-      const data = await getUserRentalDashboard({ showErrorToast: false });
+      if (!silent) {
+        setLoading(true);
+      }
+      const data = await getUserRentalDashboard({ showErrorToast });
       const normalizedBookings = Array.isArray(data.bookings) ? data.bookings : [];
       setBookings(normalizedBookings);
-      setErrorMsg('');
+      if (!silent) {
+        setErrorMsg('');
+      }
     } catch (error) {
-      const safeMessage = getErrorMessage(error, 'Failed to load rental status');
-      setErrorMsg(safeMessage);
+      if (!suppressErrors) {
+        const safeMessage = getErrorMessage(error, 'Failed to load rental status');
+        setErrorMsg(safeMessage);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     loadRentalStatus();
   }, [loadRentalStatus]);
+
+  useSmartPolling(
+    () => loadRentalStatus({ silent: true, suppressErrors: true, showErrorToast: false }),
+    { intervalMs: 20000, enabled: true },
+  );
 
   const sortedBookings = useMemo(() => {
     return [...bookings].sort((left, right) => {

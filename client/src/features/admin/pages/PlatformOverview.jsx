@@ -34,12 +34,20 @@ const PlatformOverview = () => {
       setLoading(true);
       setError('');
       try {
-        const [overviewRes, tenantsRes] = await Promise.all([
-          API.get('/platform/overview', { showErrorToast: false }),
-          API.get('/platform/tenants?page=1&pageSize=8', { showErrorToast: false }),
-        ]);
+        const overviewRes = await API.get('/platform/overview', {
+          showErrorToast: false,
+          timeout: 30000,
+          maxRetries: 1,
+        });
         if (!active) return;
         setSummary(overviewRes?.data?.summary || null);
+
+        const tenantsRes = await API.get('/platform/tenants?page=1&pageSize=8', {
+          showErrorToast: false,
+          timeout: 30000,
+          maxRetries: 1,
+        });
+        if (!active) return;
         setTenants(Array.isArray(tenantsRes?.data?.tenants) ? tenantsRes.data.tenants : []);
       } catch (apiError) {
         if (!active) return;

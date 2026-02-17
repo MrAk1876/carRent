@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
+import useSmartPolling from '../../../hooks/useSmartPolling';
 import {
   calculateAdvanceBreakdown,
   isAdvancePaidStatus,
@@ -94,21 +95,35 @@ const ManageBooking = () => {
     }
   };
 
-  const fetchOwnerBookings = async () => {
+  const fetchOwnerBookings = useCallback(async ({ silent = false, suppressErrors = false, showErrorToast = false } = {}) => {
     try {
+      if (!silent) {
+        setLoadingId('fetch');
+      }
       const params = selectedBranchId ? { branchId: selectedBranchId } : undefined;
-      const res = await API.get('/admin/requests', { params });
+      const res = await API.get('/admin/requests', {
+        params,
+        showErrorToast,
+      });
       setBookings(Array.isArray(res.data) ? res.data : []);
-      setErrorMsg('');
+      if (!silent) {
+        setErrorMsg('');
+      }
     } catch (error) {
-      setErrorMsg(getErrorMessage(error, 'Failed to load bookings'));
+      if (!suppressErrors) {
+        setErrorMsg(getErrorMessage(error, 'Failed to load bookings'));
+      }
+    } finally {
+      if (!silent) {
+        setLoadingId(null);
+      }
     }
-  };
+  }, [selectedBranchId]);
 
   useEffect(() => {
     const loadBranchOptions = async () => {
       try {
-        const response = await API.get('/admin/branch-options');
+        const response = await API.get('/admin/branch-options', { showErrorToast: false });
         const branches = Array.isArray(response.data?.branches) ? response.data.branches : [];
         setBranchOptions(branches);
       } catch {
@@ -121,9 +136,12 @@ const ManageBooking = () => {
 
   useEffect(() => {
     fetchOwnerBookings();
-    const interval = setInterval(fetchOwnerBookings, 8000);
-    return () => clearInterval(interval);
-  }, [selectedBranchId]);
+  }, [fetchOwnerBookings]);
+
+  useSmartPolling(
+    () => fetchOwnerBookings({ silent: true, suppressErrors: true, showErrorToast: false }),
+    { intervalMs: 15000, enabled: true },
+  );
 
   return (
     <div className="admin-section-page px-4 pt-6 md:pt-10 md:px-10 pb-8 md:pb-10 w-full">
@@ -178,7 +196,16 @@ const ManageBooking = () => {
           <div className="max-w-6xl rounded-2xl border border-borderColor bg-white shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-borderColor flex items-center justify-between">
               <p className="font-medium text-gray-800">Booking Approval Queue</p>
-              <p className="text-xs text-gray-500">Auto-refresh every 8 seconds</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fetchOwnerBookings()}
+                  className="rounded-md border border-borderColor px-2.5 py-1 text-xs text-gray-600 hover:bg-slate-50"
+                >
+                  Refresh
+                </button>
+                <p className="text-xs text-gray-500">Auto-refresh every 15 seconds</p>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
