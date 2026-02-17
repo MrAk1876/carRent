@@ -16,8 +16,10 @@
   background: var(--sidebar-bg);
   padding: 18px 14px 16px;
   color: var(--sidebar-text);
-  overflow-x: hidden;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
   -webkit-overflow-scrolling: touch;
   flex-shrink: 0;
 }
@@ -139,10 +141,37 @@
 .owner-sidebar__nav {
   position: relative;
   z-index: 1;
-  margin-top: 16px;
+  margin-top: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(37, 99, 235, 0.55) rgba(37, 99, 235, 0.1);
+}
+
+.owner-sidebar__nav::-webkit-scrollbar {
+  width: 7px;
+}
+
+.owner-sidebar__nav::-webkit-scrollbar-track {
+  background: rgba(37, 99, 235, 0.08);
+  border-radius: 999px;
+}
+
+.owner-sidebar__nav::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(84, 127, 243, 0.95), rgba(36, 84, 215, 0.95));
+  border-radius: 999px;
+}
+
+.owner-sidebar__nav::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(74, 117, 233, 0.98), rgba(28, 74, 201, 0.98));
 }
 
 .owner-sidebar__home-btn {

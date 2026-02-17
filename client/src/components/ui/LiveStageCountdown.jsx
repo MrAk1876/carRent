@@ -3,10 +3,19 @@ import { getGraceDeadlineMs, useCountdown } from '../../hooks/useCountdown';
 
 const normalizeStage = (value) => String(value || '').trim().toLowerCase();
 
-const resolveCountdownConfig = (stage, pickupDateTime, dropDateTime, gracePeriodHours = 1) => {
+const resolveCountdownConfig = (stage, pickupDateTime, dropDateTime, gracePeriodHours = 1, paymentDeadline = null) => {
   const normalizedStage = normalizeStage(stage);
   const graceDeadlineMs = getGraceDeadlineMs(dropDateTime, gracePeriodHours);
   const graceDeadline = Number.isFinite(graceDeadlineMs) ? new Date(graceDeadlineMs) : null;
+
+  if (normalizedStage === 'pendingpayment') {
+    return {
+      label: 'Advance payment in:',
+      targetDateTime: paymentDeadline || null,
+      direction: 'down',
+      fallback: 'Advance payment pending',
+    };
+  }
 
   if (normalizedStage === 'scheduled') {
     return {
@@ -44,6 +53,15 @@ const resolveCountdownConfig = (stage, pickupDateTime, dropDateTime, gracePeriod
     };
   }
 
+  if (normalizedStage === 'cancelled') {
+    return {
+      label: 'Booking cancelled',
+      targetDateTime: null,
+      direction: 'down',
+      fallback: 'Booking cancelled',
+    };
+  }
+
   return {
     label: 'Rental stage unavailable',
     targetDateTime: null,
@@ -57,11 +75,12 @@ const LiveStageCountdown = ({
   pickupDateTime,
   dropDateTime,
   gracePeriodHours = 1,
+  paymentDeadline = null,
   className = '',
 }) => {
   const config = useMemo(
-    () => resolveCountdownConfig(stage, pickupDateTime, dropDateTime, gracePeriodHours),
-    [stage, pickupDateTime, dropDateTime, gracePeriodHours],
+    () => resolveCountdownConfig(stage, pickupDateTime, dropDateTime, gracePeriodHours, paymentDeadline),
+    [stage, pickupDateTime, dropDateTime, gracePeriodHours, paymentDeadline],
   );
 
   const countdown = useCountdown(config.targetDateTime, {
@@ -87,4 +106,3 @@ const LiveStageCountdown = ({
 };
 
 export default LiveStageCountdown;
-

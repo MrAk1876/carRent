@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantScopedPlugin = require('../plugins/tenantScopedPlugin');
 
 const requestSchema = new mongoose.Schema(
   {
@@ -7,11 +8,23 @@ const requestSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Tenant',
+      default: null,
+      index: true,
+    },
 
     car: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Car',
       required: true,
+    },
+    branchId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Branch',
+      default: null,
+      index: true,
     },
 
     fromDate: {
@@ -46,6 +59,37 @@ const requestSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    lockedPerDayPrice: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    basePerDayPrice: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    pricingBaseAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    pricingLockedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    priceSource: {
+      type: String,
+      enum: ['Base', 'Dynamic', 'Manual'],
+      default: 'Base',
+    },
+    priceAdjustmentPercent: {
+      type: Number,
+      default: 0,
+      min: -20,
+      max: 30,
+    },
     finalAmount: {
       type: Number,
       default: 0,
@@ -70,6 +114,55 @@ const requestSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
+    },
+    rentalType: {
+      type: String,
+      enum: ['OneTime', 'Subscription'],
+      default: 'OneTime',
+    },
+    subscriptionPlanId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SubscriptionPlan',
+      default: null,
+      index: true,
+    },
+    userSubscriptionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'UserSubscription',
+      default: null,
+      index: true,
+    },
+    subscriptionBaseAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    subscriptionHoursUsed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    subscriptionCoverageAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    subscriptionExtraAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    subscriptionLateFeeDiscountPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+    subscriptionDamageFeeDiscountPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
     },
     paymentStatus: {
       type: String,
@@ -124,6 +217,17 @@ const requestSchema = new mongoose.Schema(
 );
 
 requestSchema.pre('validate', function syncDynamicPaymentFields() {
+  const normalizeRentalType = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'subscription') return 'Subscription';
+    return 'OneTime';
+  };
+  const clampPercent = (value) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return 0;
+    if (numericValue >= 100) return 100;
+    return Number(numericValue.toFixed(2));
+  };
   if (!this.pickupDateTime && this.fromDate) {
     this.pickupDateTime = this.fromDate;
   }
@@ -151,6 +255,18 @@ requestSchema.pre('validate', function syncDynamicPaymentFields() {
   const advanceRequired = Number(this.advanceRequired || 0);
   const advancePaid = Number(this.advancePaid || 0);
   const remainingAmount = Number(this.remainingAmount || 0);
+  const lockedPerDayPrice = Number(this.lockedPerDayPrice || 0);
+  const basePerDayPrice = Number(this.basePerDayPrice || 0);
+  const pricingBaseAmount = Number(this.pricingBaseAmount || 0);
+  const pricingLockedAmount = Number(this.pricingLockedAmount || 0);
+  const subscriptionBaseAmount = Number(this.subscriptionBaseAmount || 0);
+  const subscriptionHoursUsed = Number(this.subscriptionHoursUsed || 0);
+  const subscriptionCoverageAmount = Number(this.subscriptionCoverageAmount || 0);
+  const subscriptionExtraAmount = Number(this.subscriptionExtraAmount || 0);
+
+  this.rentalType = normalizeRentalType(this.rentalType);
+  this.subscriptionLateFeeDiscountPercentage = clampPercent(this.subscriptionLateFeeDiscountPercentage);
+  this.subscriptionDamageFeeDiscountPercentage = clampPercent(this.subscriptionDamageFeeDiscountPercentage);
 
   if (!Number.isFinite(finalAmount) || finalAmount < 0) {
     this.finalAmount = Math.max(totalAmount, 0);
@@ -158,6 +274,60 @@ requestSchema.pre('validate', function syncDynamicPaymentFields() {
 
   if (!Number.isFinite(this.totalAmount) || this.totalAmount < 0) {
     this.totalAmount = Math.max(Number(this.finalAmount || 0), 0);
+  }
+
+  if (!Number.isFinite(lockedPerDayPrice) || lockedPerDayPrice < 0) {
+    this.lockedPerDayPrice = 0;
+  }
+
+  if (!Number.isFinite(basePerDayPrice) || basePerDayPrice < 0) {
+    this.basePerDayPrice = 0;
+  }
+
+  if (!Number.isFinite(pricingBaseAmount) || pricingBaseAmount < 0) {
+    this.pricingBaseAmount = 0;
+  }
+
+  if (!Number.isFinite(pricingLockedAmount) || pricingLockedAmount < 0) {
+    this.pricingLockedAmount = 0;
+  }
+
+  const normalizedPriceAdjustmentPercent = Number(this.priceAdjustmentPercent || 0);
+  if (!Number.isFinite(normalizedPriceAdjustmentPercent)) {
+    this.priceAdjustmentPercent = 0;
+  } else {
+    this.priceAdjustmentPercent = Math.max(
+      -20,
+      Math.min(30, Number(normalizedPriceAdjustmentPercent.toFixed(2))),
+    );
+  }
+
+  const normalizedPriceSource = String(this.priceSource || '').trim();
+  if (!['Base', 'Dynamic', 'Manual'].includes(normalizedPriceSource)) {
+    this.priceSource = 'Base';
+  }
+
+  if (this.pricingLockedAmount <= 0) {
+    this.pricingLockedAmount = Math.max(Number(this.finalAmount || this.totalAmount || 0), 0);
+  }
+
+  if (this.lockedPerDayPrice <= 0 && this.pricingLockedAmount > 0 && this.days > 0) {
+    this.lockedPerDayPrice = Number((this.pricingLockedAmount / this.days).toFixed(2));
+  }
+
+  if (this.basePerDayPrice <= 0 && this.lockedPerDayPrice > 0 && this.priceSource === 'Base') {
+    this.basePerDayPrice = this.lockedPerDayPrice;
+  }
+
+  if (
+    this.pricingBaseAmount <= 0 &&
+    this.basePerDayPrice > 0 &&
+    this.lockedPerDayPrice > 0 &&
+    this.pricingLockedAmount > 0
+  ) {
+    this.pricingBaseAmount = Number(
+      ((this.pricingLockedAmount * this.basePerDayPrice) / this.lockedPerDayPrice).toFixed(2),
+    );
   }
 
   if (!Number.isFinite(advanceRequired) || advanceRequired < 0) {
@@ -178,6 +348,24 @@ requestSchema.pre('validate', function syncDynamicPaymentFields() {
     this.remainingAmount = Math.max(resolvedFinal - resolvedAdvanceRequired, 0);
   }
 
+  if (!Number.isFinite(subscriptionBaseAmount) || subscriptionBaseAmount < 0) {
+    this.subscriptionBaseAmount = Math.max(Number(this.finalAmount || this.totalAmount || 0), 0);
+  }
+
+  if (!Number.isFinite(subscriptionHoursUsed) || subscriptionHoursUsed < 0) {
+    this.subscriptionHoursUsed = 0;
+  }
+
+  if (!Number.isFinite(subscriptionCoverageAmount) || subscriptionCoverageAmount < 0) {
+    this.subscriptionCoverageAmount = 0;
+  }
+
+  if (!Number.isFinite(subscriptionExtraAmount) || subscriptionExtraAmount < 0) {
+    this.subscriptionExtraAmount = Math.max(Number(this.finalAmount || this.totalAmount || 0), 0);
+  }
+
 });
+
+requestSchema.plugin(tenantScopedPlugin);
 
 module.exports = mongoose.model('Request', requestSchema);

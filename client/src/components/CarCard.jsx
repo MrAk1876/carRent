@@ -3,11 +3,26 @@ import { useNavigate } from 'react-router-dom';
 import { assets } from '../assets/assets';
 import { isAdmin } from '../utils/auth';
 
+const resolveFleetStatus = (car) => {
+  const normalized = String(car?.fleetStatus || '').trim();
+  if (normalized) return normalized;
+  return car?.isAvailable ? 'Available' : 'Inactive';
+};
+
+const getFleetBadgeClass = (fleetStatus) => {
+  if (fleetStatus === 'Available') return 'bg-primary text-white';
+  if (fleetStatus === 'Reserved') return 'bg-amber-500 text-white';
+  if (fleetStatus === 'Rented') return 'bg-blue-600 text-white';
+  if (fleetStatus === 'Maintenance') return 'bg-orange-500 text-white';
+  return 'bg-red-500 text-white';
+};
+
 const CarCard = ({ car }) => {
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const navigate = useNavigate();
   const admin = isAdmin();
-  const canOpenDetails = admin || car.isAvailable;
+  const fleetStatus = resolveFleetStatus(car);
+  const canOpenDetails = admin || fleetStatus === 'Available';
 
   const openDetails = () => {
     if (!canOpenDetails) return;
@@ -33,13 +48,15 @@ const CarCard = ({ car }) => {
 
         <div className="absolute top-3 left-3 flex flex-col gap-1">
           <p
-            className={`text-[11px] px-2 py-1 rounded-full font-medium ${
-              car.isAvailable ? 'bg-primary text-white' : 'bg-red-500 text-white'
-            }`}
+            className={`text-[11px] px-2 py-1 rounded-full font-medium ${getFleetBadgeClass(fleetStatus)}`}
           >
-            {car.isAvailable ? 'Available Now' : 'Unavailable'}
+            {fleetStatus === 'Available' ? 'Available Now' : fleetStatus}
           </p>
-          <p className="text-[11px] px-2 py-1 rounded-full font-medium bg-emerald-600 text-white">Negotiation Open</p>
+          {fleetStatus === 'Available' ? (
+            <p className="text-[11px] px-2 py-1 rounded-full font-medium bg-emerald-600 text-white">Negotiation Open</p>
+          ) : (
+            <p className="text-[11px] px-2 py-1 rounded-full font-medium bg-slate-500 text-white">Not Bookable</p>
+          )}
         </div>
 
         <div className="absolute right-3 bottom-3 bg-black/80 text-white px-3 py-1.5 rounded-lg">

@@ -4,6 +4,20 @@ import { assets } from '../../../assets/assets';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
 
+const resolveFleetStatus = (car) => {
+  const normalized = String(car?.fleetStatus || '').trim();
+  if (normalized) return normalized;
+  return car?.isAvailable ? 'Available' : 'Inactive';
+};
+
+const getFleetStatusBadgeClass = (fleetStatus) => {
+  if (fleetStatus === 'Available') return 'bg-emerald-100 text-emerald-700';
+  if (fleetStatus === 'Reserved') return 'bg-amber-100 text-amber-700';
+  if (fleetStatus === 'Rented') return 'bg-blue-100 text-blue-700';
+  if (fleetStatus === 'Maintenance') return 'bg-orange-100 text-orange-700';
+  return 'bg-slate-200 text-slate-700';
+};
+
 const ManageCars = () => {
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const navigate = useNavigate();
@@ -65,8 +79,9 @@ const ManageCars = () => {
     const searchTerm = search.trim().toLowerCase();
     return cars
       .filter(car => {
-        if (statusFilter === 'available') return car.isAvailable;
-        if (statusFilter === 'unavailable') return !car.isAvailable;
+        const fleetStatus = resolveFleetStatus(car);
+        if (statusFilter === 'available') return fleetStatus === 'Available';
+        if (statusFilter === 'unavailable') return fleetStatus !== 'Available';
         return true;
       })
       .filter(car => {
@@ -93,7 +108,7 @@ const ManageCars = () => {
 
   const stats = useMemo(() => {
     const total = cars.length;
-    const available = cars.filter(car => car.isAvailable).length;
+    const available = cars.filter(car => resolveFleetStatus(car) === 'Available').length;
     const unavailable = Math.max(total - available, 0);
     const avgPrice = total > 0 ? Math.round(cars.reduce((sum, car) => sum + Number(car.pricePerDay || 0), 0) / total) : 0;
     return { total, available, unavailable, avgPrice };
@@ -178,7 +193,18 @@ const ManageCars = () => {
                   {!loading &&
                     filteredCars.map(car => (
                       <tr key={car._id} className="border-t border-borderColor">
-                        <td className="p-3">
+                        {(() => {
+                          const fleetStatus = resolveFleetStatus(car);
+                          const canToggleVisibility = ['Available', 'Inactive'].includes(fleetStatus);
+                          const toggleTitle = canToggleVisibility
+                            ? fleetStatus === 'Available'
+                              ? 'Mark inactive'
+                              : 'Mark available'
+                            : 'Use Fleet Overview for status changes';
+
+                          return (
+                            <>
+                              <td className="p-3">
                           <div className="flex items-center gap-3">
                             <img src={car.image} alt="car" className="w-16 h-12 object-cover rounded-md border border-borderColor" />
                             <div>
@@ -190,37 +216,42 @@ const ManageCars = () => {
                               </p>
                             </div>
                           </div>
-                        </td>
-                        <td className="p-3 text-gray-700">{car.category || 'N/A'}</td>
-                        <td className="p-3 font-medium text-gray-800">
-                          {currency}
-                          {car.pricePerDay}
-                        </td>
-                        <td className="p-3">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${car.isAvailable ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{car.isAvailable ? 'Available' : 'Unavailable'}</span>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button onClick={() => navigate(`/owner/add-car?edit=${car._id}`)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`} title="Edit">
-                              <span className={actionIconWrapClass}>
-                                <img src={assets.edit_icon} alt="edit" className={actionIconClass} />
-                              </span>
-                              <span>Edit</span>
-                            </button>
-                            <button onClick={() => toggleCar(car._id)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : car.isAvailable ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`} title={car.isAvailable ? 'Mark unavailable' : 'Mark available'}>
-                              <span className={actionIconWrapClass}>
-                                <img src={car.isAvailable ? assets.eye_close_icon : assets.eye_icon} alt="toggle" className={actionIconClass} />
-                              </span>
-                              <span>{car.isAvailable ? 'Hide' : 'Show'}</span>
-                            </button>
-                            <button onClick={() => deleteCar(car._id)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'}`} title="Delete">
-                              <span className={actionIconWrapClass}>
-                                <img src={assets.delete_icon} alt="delete" className={actionIconClass} />
-                              </span>
-                              <span>Delete</span>
-                            </button>
-                          </div>
-                        </td>
+                              </td>
+                              <td className="p-3 text-gray-700">{car.category || 'N/A'}</td>
+                              <td className="p-3 font-medium text-gray-800">
+                                {currency}
+                                {car.pricePerDay}
+                              </td>
+                              <td className="p-3">
+                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${getFleetStatusBadgeClass(fleetStatus)}`}>
+                                  {fleetStatus}
+                                </span>
+                              </td>
+                              <td className="p-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button onClick={() => navigate(`/owner/add-car?edit=${car._id}`)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`} title="Edit">
+                                    <span className={actionIconWrapClass}>
+                                      <img src={assets.edit_icon} alt="edit" className={actionIconClass} />
+                                    </span>
+                                    <span>Edit</span>
+                                  </button>
+                                  <button onClick={() => toggleCar(car._id)} disabled={actionId === car._id || !canToggleVisibility} className={`${actionButtonBaseClass} ${actionId === car._id || !canToggleVisibility ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : fleetStatus === 'Available' ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`} title={toggleTitle}>
+                                    <span className={actionIconWrapClass}>
+                                      <img src={fleetStatus === 'Available' ? assets.eye_close_icon : assets.eye_icon} alt="toggle" className={actionIconClass} />
+                                    </span>
+                                    <span>{fleetStatus === 'Available' ? 'Hide' : 'Show'}</span>
+                                  </button>
+                                  <button onClick={() => deleteCar(car._id)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'}`} title="Delete">
+                                    <span className={actionIconWrapClass}>
+                                      <img src={assets.delete_icon} alt="delete" className={actionIconClass} />
+                                    </span>
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </>
+                          );
+                        })()}
                       </tr>
                     ))}
                 </tbody>

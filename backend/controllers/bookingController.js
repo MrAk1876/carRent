@@ -6,10 +6,33 @@ const {
   isPendingPaymentBookingStatus,
   normalizeStatusKey,
 } = require('../utils/paymentUtils');
+const { normalizeFleetStatus, isFleetBookable, FLEET_STATUS } = require('../utils/fleetStatus');
+const { isStaffRole } = require('../utils/rbac');
+const { tryReserveCar, releaseCarIfUnblocked } = require('../services/fleetService');
+const { syncCarFleetStatusFromMaintenance } = require('../services/maintenanceService');
+const { assertCarInScope, assertBranchInScope } = require('../services/adminScopeService');
+const { assertCarBranchActive } = require('../services/branchService');
+const { resolveSmartPriceForCar, buildPricingAmounts } = require('../services/smartPricingService');
 const { syncRentalStagesForBookings } = require('../services/rentalStageService');
+const { runPendingPaymentTimeoutSweep } = require('../services/bookingPaymentTimeoutService');
+const { queuePendingPaymentEmailForBooking } = require('../services/bookingEmailNotificationService');
+const { releaseDriverForBooking } = require('../services/driverAllocationService');
+
+const assertBookingInScope = async (user, booking, message) => {
+  if (booking?.branchId) {
+    assertBranchInScope(user, String(booking.branchId), message);
+    return;
+  }
+
+  await assertCarInScope(user, booking?.car, message);
+};
 
 exports.createRequest = async (req, res) => {
   try {
+    if (isStaffRole(req.user?.role)) {
+      return res.status(403).json({ message: 'Staff can view cars but cannot create rental bookings' });
+    }
+
     const { carId, fromDate, toDate } = req.body;
 
     // 1️⃣ Validate car
@@ -18,8 +41,23 @@ exports.createRequest = async (req, res) => {
       return res.status(404).json({ message: 'Car not found' });
     }
 
-    if (!car.isAvailable) {
-      return res.status(400).json({ message: 'Car is not available' });
+    const syncResult = await syncCarFleetStatusFromMaintenance(car._id, { now: new Date() });
+    const carForBooking = syncResult?.car || car;
+    const fleetStatus = normalizeFleetStatus(
+      carForBooking.fleetStatus,
+      carForBooking.isAvailable === false ? FLEET_STATUS.INACTIVE : FLEET_STATUS.AVAILABLE,
+    );
+    const { branch } = await assertCarBranchActive(carForBooking, 'Vehicle temporarily unavailable');
+
+    if (!isFleetBookable(fleetStatus)) {
+      return res.status(422).json({
+        message: fleetStatus === FLEET_STATUS.MAINTENANCE ? 'Vehicle under maintenance' : 'Vehicle temporarily unavailable',
+      });
+    }
+
+    const reservedCar = await tryReserveCar(carId);
+    if (!reservedCar) {
+      return res.status(409).json({ message: 'Vehicle just became unavailable. Please try another car.' });
     }
 
     // 2️⃣ Date handling
@@ -47,36 +85,62 @@ exports.createRequest = async (req, res) => {
     }
 
     // 4️⃣ Price calculation
-    const totalAmount = days * car.pricePerDay;
+    const pricingSnapshot = await resolveSmartPriceForCar(carForBooking, {
+      now: new Date(),
+      persist: true,
+      branchId: branch?._id || carForBooking?.branchId,
+    });
+    const lockedPerDayPrice = Number(pricingSnapshot?.effectivePricePerDay || carForBooking?.pricePerDay || 0);
+    const basePerDayPrice = Number(pricingSnapshot?.basePricePerDay || carForBooking?.pricePerDay || 0);
+    const totalAmount = days * lockedPerDayPrice;
+    const pricingAmounts = buildPricingAmounts({
+      basePerDayPrice,
+      lockedPerDayPrice,
+      billingDays: days,
+    });
     const breakdown = calculateAdvanceBreakdown(totalAmount);
 
     // 5️⃣ Create booking
-    const booking = await Booking.create({
-      user: req.user._id,
-      car: carId,
-      fromDate,
-      toDate,
-      pickupDateTime: fromDate,
-      dropDateTime: toDate,
-      actualPickupTime: null,
-      actualReturnTime: null,
-      gracePeriodHours: 1,
-      rentalStage: 'Scheduled',
-      totalAmount: breakdown.finalAmount,
-      finalAmount: breakdown.finalAmount,
-      advanceAmount: breakdown.advanceRequired,
-      advanceRequired: breakdown.advanceRequired,
-      advancePaid: 0,
-      remainingAmount: breakdown.remainingAmount,
+    let booking;
+    try {
+      booking = await Booking.create({
+        user: req.user._id,
+        car: carId,
+        branchId: branch?._id || null,
+        fromDate,
+        toDate,
+        pickupDateTime: fromDate,
+        dropDateTime: toDate,
+        actualPickupTime: null,
+        actualReturnTime: null,
+        gracePeriodHours: 1,
+        rentalStage: 'Scheduled',
+        totalAmount: breakdown.finalAmount,
+        lockedPerDayPrice: pricingAmounts.lockedPerDayPrice,
+        basePerDayPrice: pricingAmounts.basePerDayPrice,
+        pricingBaseAmount: pricingAmounts.pricingBaseAmount,
+        pricingLockedAmount: pricingAmounts.pricingLockedAmount,
+        priceSource: pricingSnapshot?.priceSource || 'Base',
+        priceAdjustmentPercent: Number(pricingSnapshot?.priceAdjustmentPercent || 0),
+        finalAmount: breakdown.finalAmount,
+        advanceAmount: breakdown.advanceRequired,
+        advanceRequired: breakdown.advanceRequired,
+        advancePaid: 0,
+        remainingAmount: breakdown.remainingAmount,
 
-      paymentStatus: 'Unpaid',
-      bookingStatus: 'PendingPayment',
+        paymentStatus: 'Unpaid',
+        bookingStatus: 'PendingPayment',
 
-      bargain: {
-        userAttempts: 0,
-        status: 'NONE',
-      },
-    });
+        bargain: {
+          userAttempts: 0,
+          status: 'NONE',
+        },
+      });
+    } catch (creationError) {
+      await releaseCarIfUnblocked(carId);
+      throw creationError;
+    }
+    queuePendingPaymentEmailForBooking(booking);
 
     res.status(201).json({
       message: 'Booking request created with advance payment',
@@ -90,7 +154,19 @@ exports.createRequest = async (req, res) => {
 // Get logged-in user's bookings
 exports.getMyBookings = async (req, res) => {
   try {
-    const bookings = await Booking.find({ user: req.user._id }).populate('car').sort({ createdAt: -1 });
+    try {
+      await runPendingPaymentTimeoutSweep();
+    } catch (sweepError) {
+      console.error('payment timeout sweep failed (legacy booking getMyBookings):', sweepError);
+    }
+
+    const bookings = await Booking.find({ user: req.user._id })
+      .populate('car')
+      .populate('subscriptionPlanId', 'planName durationType durationInDays')
+      .populate('assignedDriver', 'driverName phoneNumber licenseNumber')
+      .populate('pickupInspection.inspectedBy', 'firstName lastName email')
+      .populate('returnInspection.inspectedBy', 'firstName lastName email')
+      .sort({ createdAt: -1 });
 
     await syncRentalStagesForBookings(bookings, { persist: true });
     res.json(bookings);
@@ -123,12 +199,19 @@ exports.cancelBooking = async (req, res) => {
 
     // 🔴 USER cancellation → NO refund
     booking.bookingStatus = 'Cancelled';
+    booking.cancellationReason = 'Cancelled by user';
+    booking.cancelledAt = new Date();
+    booking.rentalStage = null;
 
     // Keep recorded payment status; no refund on user cancellation.
     await booking.save();
+    try {
+      await releaseDriverForBooking(booking, { incrementTripCount: true });
+    } catch (driverReleaseError) {
+      console.error('driver release failed on user cancellation:', driverReleaseError);
+    }
 
-    // Make car available again
-    await Car.findByIdAndUpdate(booking.car, { isAvailable: true });
+    await releaseCarIfUnblocked(booking.car);
 
     res.json({
       message: 'Booking cancelled. Advance amount is not refundable.',
@@ -146,6 +229,8 @@ exports.adminRejectBooking = async (req, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
+    await assertBookingInScope(req.user, booking, 'Booking does not belong to your branch scope');
+
     if (!isPendingPaymentBookingStatus(booking.bookingStatus)) {
       return res.status(400).json({
         message: 'Only pending bookings can be rejected',
@@ -153,20 +238,28 @@ exports.adminRejectBooking = async (req, res) => {
     }
 
     booking.bookingStatus = 'REJECTED';
+    booking.cancellationReason = 'Rejected by admin';
+    booking.rentalStage = null;
 
     // 🔥 ADMIN rejection → REFUND advance
     booking.paymentStatus = 'REFUNDED';
 
     await booking.save();
+    try {
+      await releaseDriverForBooking(booking, { incrementTripCount: false });
+    } catch (driverReleaseError) {
+      console.error('driver release failed on admin rejection:', driverReleaseError);
+    }
 
-    // Make car available again
-    await Car.findByIdAndUpdate(booking.car, { isAvailable: true });
+    await releaseCarIfUnblocked(booking.car);
 
     res.json({
       message: 'Booking rejected. Advance amount refunded.',
     });
   } catch (error) {
-    res.status(500).json({ message: 'Reject failed' });
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Reject failed' : error.message;
+    res.status(status).json({ message });
   }
 };
 // User bargain price (max 3 attempts)
@@ -254,7 +347,9 @@ exports.userBargainPrice = async (req, res) => {
       maxAttempts: 3,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Admin bargain decision failed' : error.message;
+    res.status(status).json({ message });
   }
 };
 // Admin bargain decision
@@ -266,6 +361,8 @@ exports.adminBargainDecision = async (req, res) => {
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
+
+    await assertBookingInScope(req.user, booking, 'Booking does not belong to your branch scope');
 
     if (!isPendingPaymentBookingStatus(booking.bookingStatus)) {
       return res.status(400).json({
@@ -390,15 +487,21 @@ exports.adminDeleteBooking = async (req, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    // Free car when deleting non-completed booking records
-    if (booking.tripStatus !== 'completed') {
-      await Car.findByIdAndUpdate(booking.car, { isAvailable: true });
-    }
+    await assertBookingInScope(req.user, booking, 'Booking does not belong to your branch scope');
 
+    const carId = booking.car;
+    try {
+      await releaseDriverForBooking(booking, { incrementTripCount: false });
+    } catch (driverReleaseError) {
+      console.error('driver release failed on admin delete:', driverReleaseError);
+    }
     await booking.deleteOne();
+    await releaseCarIfUnblocked(carId);
 
     res.json({ message: 'Booking deleted by admin' });
   } catch (error) {
-    res.status(500).json({ message: 'Admin delete failed' });
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Admin delete failed' : error.message;
+    res.status(status).json({ message });
   }
 };

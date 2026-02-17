@@ -99,6 +99,8 @@ export const calculateLiveLateMetrics = (params = {}) => {
     hourlyLateRate = 0,
     finalAmount = 0,
     advancePaid = 0,
+    damageCost = 0,
+    lateFeeDiscountPercentage = 0,
   } = params;
 
   const normalizedStage = String(stage || '').trim().toLowerCase();
@@ -107,6 +109,11 @@ export const calculateLiveLateMetrics = (params = {}) => {
   const safeHourlyLateRate = Math.max(Number(hourlyLateRate || 0), 0);
   const safeFinalAmount = Math.max(Number(finalAmount || 0), 0);
   const safeAdvancePaid = Math.max(Number(advancePaid || 0), 0);
+  const safeDamageCost = Math.max(Number(damageCost || 0), 0);
+  const safeLateFeeDiscountPercentage = Math.min(
+    Math.max(Number(lateFeeDiscountPercentage || 0), 0),
+    100,
+  );
 
   let computedLateHours = storedLateHours;
   if (normalizedStage === 'overdue') {
@@ -118,9 +125,21 @@ export const calculateLiveLateMetrics = (params = {}) => {
     }
   }
 
-  const computedLateFee = Number((computedLateHours * safeHourlyLateRate).toFixed(2));
+  const computedLateFee = Number(
+    (
+      computedLateHours *
+      safeHourlyLateRate *
+      (1 - safeLateFeeDiscountPercentage / 100)
+    ).toFixed(2),
+  );
   const liveLateFee = Math.max(storedLateFee, computedLateFee);
-  const liveRemainingAmount = Number((Math.max(safeFinalAmount - safeAdvancePaid, 0) + liveLateFee).toFixed(2));
+  const liveRemainingAmount = Number(
+    (
+      Math.max(safeFinalAmount - safeAdvancePaid, 0) +
+      liveLateFee +
+      safeDamageCost
+    ).toFixed(2),
+  );
 
   return {
     lateHours: computedLateHours,

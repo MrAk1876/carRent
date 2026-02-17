@@ -57,6 +57,15 @@ const createEmptyCarForm = () => ({
   fuel_type: '',
   seating_capacity: '',
   location: '',
+  registrationNumber: '',
+  chassisNumber: '',
+  engineNumber: '',
+  purchaseDate: '',
+  insuranceExpiry: '',
+  pollutionExpiry: '',
+  currentMileage: '',
+  totalTripsCompleted: '',
+  lastServiceDate: '',
 });
 
 const CAR_FORM_FIELDS = [
@@ -70,7 +79,25 @@ const CAR_FORM_FIELDS = [
   'fuel_type',
   'seating_capacity',
   'location',
+  'registrationNumber',
+  'chassisNumber',
+  'engineNumber',
+  'purchaseDate',
+  'insuranceExpiry',
+  'pollutionExpiry',
+  'currentMileage',
+  'totalTripsCompleted',
+  'lastServiceDate',
 ];
+
+const DATE_FIELDS = ['purchaseDate', 'insuranceExpiry', 'pollutionExpiry', 'lastServiceDate'];
+
+const toDateInputValue = (value) => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+};
 
 const mapCarToForm = (car) => {
   if (!car) return createEmptyCarForm();
@@ -78,6 +105,10 @@ const mapCarToForm = (car) => {
   const mapped = createEmptyCarForm();
   CAR_FORM_FIELDS.forEach((field) => {
     mapped[field] = car[field] ?? '';
+  });
+
+  DATE_FIELDS.forEach((field) => {
+    mapped[field] = toDateInputValue(mapped[field]);
   });
 
   if (!ALLOWED_CAR_LOCATIONS.includes(mapped.location)) {
@@ -410,6 +441,100 @@ const AddCar = () => {
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-borderColor bg-white p-5 md:p-6 shadow-sm">
+            <p className="text-sm font-semibold text-gray-800 mb-4">Fleet Metadata (Optional)</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <label className={labelClass}>Registration Number</label>
+                <input
+                  type="text"
+                  placeholder="e.g. GJ01AB1234"
+                  className={inputClass}
+                  value={car.registrationNumber}
+                  onChange={(e) => setCar({ ...car, registrationNumber: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Chassis Number</label>
+                <input
+                  type="text"
+                  placeholder="Vehicle chassis number"
+                  className={inputClass}
+                  value={car.chassisNumber}
+                  onChange={(e) => setCar({ ...car, chassisNumber: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Engine Number</label>
+                <input
+                  type="text"
+                  placeholder="Vehicle engine number"
+                  className={inputClass}
+                  value={car.engineNumber}
+                  onChange={(e) => setCar({ ...car, engineNumber: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Purchase Date</label>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={car.purchaseDate}
+                  onChange={(e) => setCar({ ...car, purchaseDate: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Insurance Expiry</label>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={car.insuranceExpiry}
+                  onChange={(e) => setCar({ ...car, insuranceExpiry: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Pollution Expiry</label>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={car.pollutionExpiry}
+                  onChange={(e) => setCar({ ...car, pollutionExpiry: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Current Mileage</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 10250"
+                  className={inputClass}
+                  value={car.currentMileage}
+                  onChange={(e) => setCar({ ...car, currentMileage: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Total Trips Completed</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 12"
+                  className={inputClass}
+                  value={car.totalTripsCompleted}
+                  onChange={(e) => setCar({ ...car, totalTripsCompleted: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Last Service Date</label>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={car.lastServiceDate}
+                  onChange={(e) => setCar({ ...car, lastServiceDate: e.target.value })}
+                />
               </div>
             </div>
           </div>

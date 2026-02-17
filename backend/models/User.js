@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { ROLES, ROLE, normalizeRole, normalizeBranches } = require('../utils/rbac');
+const tenantScopedPlugin = require('../plugins/tenantScopedPlugin');
 
 const userSchema = new mongoose.Schema(
   {
@@ -86,8 +88,20 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ['user', 'admin'],
-      default: 'user',
+      enum: ROLES,
+      default: ROLE.USER,
+    },
+
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Tenant',
+      default: null,
+      index: true,
+    },
+
+    assignedBranches: {
+      type: [String],
+      default: [],
     },
 
     isBlocked: {
@@ -107,5 +121,12 @@ userSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
   this.password = await bcrypt.hash(this.password, 10);
 });
+
+userSchema.pre('validate', function normalizeRoleFields() {
+  this.role = normalizeRole(this.role, ROLE.USER);
+  this.assignedBranches = normalizeBranches(this.assignedBranches);
+});
+
+userSchema.plugin(tenantScopedPlugin);
 
 module.exports = mongoose.model('User', userSchema);

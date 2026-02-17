@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const { enforceTenantActive } = require('../middleware/tenantMiddleware');
 const {
   validateCreateOffer,
   validateOfferIdParam,
@@ -12,8 +13,10 @@ const {
   respondToCounterOffer,
 } = require('../controllers/offerController');
 
-router.post('/', protect, validateCreateOffer, createOffer);
-router.get('/my', protect, getMyOffers);
-router.put('/:id/respond', protect, validateOfferIdParam, validateUserRespondOffer, respondToCounterOffer);
+const bookingTenantGuard = enforceTenantActive({ bookingOnly: true });
+
+router.post('/', protect, bookingTenantGuard, validateCreateOffer, createOffer);
+router.get('/my', protect, bookingTenantGuard, getMyOffers);
+router.put('/:id/respond', protect, bookingTenantGuard, validateOfferIdParam, validateUserRespondOffer, respondToCounterOffer);
 
 module.exports = router;

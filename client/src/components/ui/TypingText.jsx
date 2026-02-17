@@ -5,11 +5,16 @@ const TypingText = ({
   typingSpeed = 70,
   deletingSpeed = 45,
   pauseMs = 1200,
+  preserveWidth = true,
   className = '',
 }) => {
   const safeWords = useMemo(() => {
     return Array.isArray(words) && words.length > 0 ? words : [''];
   }, [words]);
+  const longestWordLength = useMemo(
+    () => safeWords.reduce((max, word) => Math.max(max, String(word || '').length), 0),
+    [safeWords]
+  );
   const [wordIndex, setWordIndex] = useState(0);
   const [typed, setTyped] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -41,9 +46,16 @@ const TypingText = ({
   }, [typed, isDeleting, wordIndex, safeWords, typingSpeed, deletingSpeed, pauseMs]);
 
   return (
-    <span className={className}>
-      {typed}
-      <span className="animate-pulse">|</span>
+    <span
+      className={`inline-flex items-baseline max-w-full whitespace-nowrap ${className}`}
+      style={
+        preserveWidth
+          ? { width: `min(100%, ${Math.max(longestWordLength + 1, 12)}ch)` }
+          : undefined
+      }
+    >
+      <span>{typed || '\u00A0'}</span>
+      <span className="animate-pulse ml-0.5">|</span>
     </span>
   );
 };

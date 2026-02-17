@@ -1,6 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
+const { bootstrapBranchSystem } = require('./services/branchService');
+const { bootstrapTenantSystem } = require('./services/tenantService');
+const { runWithTenantContext } = require('./services/tenantContextService');
+const { initializeTenantContext } = require('./middleware/tenantMiddleware');
 const userRoutes = require('./routes/userRoutes');
 
 let dbConnected = false;
@@ -38,6 +42,16 @@ const ensureDbConnection = () => {
   if (dbConnected) return;
   connectDB();
   dbConnected = true;
+  bootstrapTenantSystem()
+    .then((defaultTenant) =>
+      runWithTenantContext(
+        { tenantId: String(defaultTenant?._id || '') },
+        () => bootstrapBranchSystem(),
+      ),
+    )
+    .catch((error) => {
+      console.error('tenant/bootstrap failed:', error?.message || error);
+    });
 };
 
 const createApp = (options = {}) => {
@@ -69,6 +83,7 @@ const createApp = (options = {}) => {
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });
+  app.use(initializeTenantContext);
 
   ensureDbConnection();
 
@@ -85,6 +100,10 @@ const createApp = (options = {}) => {
   app.use('/api/offers', require('./routes/offerRoutes'));
   app.use('/api/reviews', require('./routes/reviewRoutes'));
   app.use('/api/contact', require('./routes/contactRoutes'));
+  app.use('/api/invoice', require('./routes/invoiceRoutes'));
+  app.use('/api/subscriptions', require('./routes/subscriptionRoutes'));
+  app.use('/api/tenant', require('./routes/tenantRoutes'));
+  app.use('/api/platform', require('./routes/platformRoutes'));
   app.use('/api/admin', require('./routes/adminRoutes'));
   app.use('/api/user', userRoutes);
 

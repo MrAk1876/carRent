@@ -8,20 +8,33 @@ import useNotify from '../hooks/useNotify';
 import {
   calculateAdvanceBreakdown,
   getNormalizedStatusKey,
+  hasPickupInspection,
+  hasReturnInspection,
   isAdvancePaidStatus,
   isCancelledBookingStatus,
   isConfirmedBookingStatus,
   isFullyPaidStatus,
+  isPaymentTimeoutCancelled,
   resolveAdvancePaid,
   resolveAdvanceRequired,
+  resolveDamageCost,
   resolveDropDateTime,
   resolveFinalAmount,
   resolveLateFee,
   resolveLateHours,
   resolveHourlyLateRate,
+  resolvePaymentDeadline,
   resolvePickupDateTime,
+  resolveRefundAmount,
+  resolveRefundProcessedAt,
+  resolveRefundReason,
+  resolveRefundStatus,
+  resolveRentalType,
+  resolveSubscriptionLateFeeDiscountPercent,
   resolveRentalStage,
   resolveRemainingAmount,
+  resolveTotalPaidAmount,
+  isRefundProcessedStatus,
 } from '../utils/payment';
 
 const MyBookings = () => {
@@ -354,14 +367,29 @@ const MyBookings = () => {
           const lateHours = resolveLateHours(item);
           const lateFee = resolveLateFee(item);
           const hourlyLateRate = resolveHourlyLateRate(item);
+          const damageCost = resolveDamageCost(item);
+          const rentalType = resolveRentalType(item);
+          const lateFeeDiscountPercentage = resolveSubscriptionLateFeeDiscountPercent(item);
+          const pickupInspectionDone = hasPickupInspection(item);
+          const returnInspectionDone = hasReturnInspection(item);
           const pickupDateTime = resolvePickupDateTime(item);
           const dropDateTime = resolveDropDateTime(item);
           const gracePeriodHours = Number.isFinite(Number(item?.gracePeriodHours))
             ? Math.max(Number(item?.gracePeriodHours), 0)
             : 1;
           const rentalStage = resolveRentalStage(item) || 'PendingPayment';
+          const normalizedBookingStatus = getNormalizedStatusKey(item?.bookingStatus);
+          const paymentDeadline = resolvePaymentDeadline(item);
+          const isPendingPaymentBooking = item.type === 'booking' && normalizedBookingStatus === 'PENDINGPAYMENT';
+          const timeoutCancelled = item.type === 'booking' && isPaymentTimeoutCancelled(item);
           const fullPaymentAmount = Math.max(Number(item?.fullPaymentAmount || 0), 0);
-          const finalInvoiceAmount = Number((finalAmount + lateFee).toFixed(2));
+          const finalInvoiceAmount = Number((finalAmount + lateFee + damageCost).toFixed(2));
+          const refundStatus = resolveRefundStatus(item);
+          const refundAmount = resolveRefundAmount(item);
+          const refundReason = resolveRefundReason(item);
+          const refundProcessedAt = resolveRefundProcessedAt(item);
+          const isRefundProcessed = isRefundProcessedStatus(refundStatus);
+          const netPaidAmount = resolveTotalPaidAmount(item);
           const totalPaidAmount = isFullyPaidStatus(item?.paymentStatus)
             ? Number(((Math.max(advancePaid, 0) + fullPaymentAmount) || finalInvoiceAmount).toFixed(2))
             : Number((Math.max(advancePaid, 0)).toFixed(2));
@@ -372,6 +400,10 @@ const MyBookings = () => {
               ? 'bg-emerald-100 text-emerald-700'
               : rentalStage === 'Completed'
               ? 'bg-gray-200 text-gray-700'
+              : rentalStage === 'Cancelled'
+              ? 'bg-red-100 text-red-700'
+              : rentalStage === 'PendingPayment'
+              ? 'bg-amber-100 text-amber-700'
               : 'bg-blue-100 text-blue-700';
           const rentalStageTone =
             rentalStage === 'Overdue'
@@ -380,6 +412,10 @@ const MyBookings = () => {
               ? 'text-emerald-700'
               : rentalStage === 'Completed'
               ? 'text-gray-600'
+              : rentalStage === 'Cancelled'
+              ? 'text-red-700'
+              : rentalStage === 'PendingPayment'
+              ? 'text-amber-700'
               : 'text-blue-700';
 
           return (
@@ -434,15 +470,22 @@ const MyBookings = () => {
 
                 {item.type === 'booking' ? (
                   <LiveStageCountdown
-                    stage={rentalStage}
+                    stage={isPendingPaymentBooking ? 'PendingPayment' : rentalStage}
                     pickupDateTime={pickupDateTime}
                     dropDateTime={dropDateTime}
+                    paymentDeadline={isPendingPaymentBooking ? paymentDeadline : null}
                     gracePeriodHours={gracePeriodHours}
-                    className={`mt-1 text-xs ${rentalStageTone}`}
+                    className={`mt-1 text-xs ${isPendingPaymentBooking ? 'text-amber-700' : rentalStageTone}`}
                   />
                 ) : (
                   <p className="mt-1 text-xs text-amber-700">Advance payment pending</p>
                 )}
+
+                {timeoutCancelled ? (
+                  <p className="mt-1 w-full rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700 text-right">
+                    Booking cancelled due to unpaid advance.
+                  </p>
+                ) : null}
 
                 {item.type === 'booking' && rentalStage === 'Overdue' ? (
                   <div className="mt-2 w-full rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] text-red-700 text-right animate-pulse">
@@ -497,6 +540,18 @@ const MyBookings = () => {
                     </span>
                   </p>
                   <p>
+                    Rental Type: <span className="font-semibold">{resolveRentalType(item)}</span>
+                  </p>
+                  {resolveRentalType(item) === 'Subscription' ? (
+                    <p>
+                      Subscription Coverage:{' '}
+                      <span className="font-semibold text-emerald-700">
+                        {currency}
+                        {Number(item?.subscriptionCoverageAmount || 0)}
+                      </span>
+                    </p>
+                  ) : null}
+                  <p>
                     Payment Status: <span className="font-semibold">{item.paymentStatus || 'Unpaid'}</span>
                   </p>
                   <p>
@@ -531,6 +586,49 @@ const MyBookings = () => {
                       {remainingAmount}
                     </span>
                   </p>
+                  <p>
+                    Damage Cost:{' '}
+                    <span className={`font-semibold ${damageCost > 0 ? 'text-red-700' : ''}`}>
+                      {currency}
+                      {damageCost}
+                    </span>
+                  </p>
+                  <p>
+                    Rental Type: <span className="font-semibold">{rentalType}</span>
+                  </p>
+                  {rentalType === 'Subscription' ? (
+                    <p>
+                      Late Fee Discount:{' '}
+                      <span className="font-semibold text-emerald-700">{lateFeeDiscountPercentage}%</span>
+                    </p>
+                  ) : null}
+                  <p>
+                    Net Paid:{' '}
+                    <span className="font-semibold">
+                      {currency}
+                      {netPaidAmount}
+                    </span>
+                  </p>
+                  <p>
+                    Refund Status: <span className="font-semibold">{refundStatus}</span>
+                  </p>
+                  <p>
+                    Refund Amount:{' '}
+                    <span className="font-semibold">
+                      {currency}
+                      {refundAmount}
+                    </span>
+                  </p>
+                  {isRefundProcessed ? (
+                    <p>
+                      Refund Date: <span className="font-semibold">{formatDateTimeLabel(refundProcessedAt)}</span>
+                    </p>
+                  ) : null}
+                  {refundReason ? (
+                    <p>
+                      Refund Reason: <span className="font-semibold">{refundReason}</span>
+                    </p>
+                  ) : null}
                   <LiveLateFeeSummary
                     stage={rentalStage}
                     dropDateTime={dropDateTime}
@@ -540,6 +638,8 @@ const MyBookings = () => {
                     hourlyLateRate={hourlyLateRate}
                     finalAmount={finalAmount}
                     advancePaid={advancePaid || advanceRequired}
+                    damageCost={damageCost}
+                    lateFeeDiscountPercentage={lateFeeDiscountPercentage}
                     currency={currency}
                     highlight={rentalStage === 'Overdue'}
                   />
@@ -565,6 +665,35 @@ const MyBookings = () => {
                       </p>
                     </div>
                   ) : null}
+
+                  <div className="mt-2 rounded-lg border border-borderColor bg-white p-2 space-y-1">
+                    <p className="font-medium text-gray-700">Pickup Condition</p>
+                    <p>
+                      Status: <span className="font-semibold">{pickupInspectionDone ? 'Submitted' : 'Pending'}</span>
+                    </p>
+                    <p>Notes: <span className="font-semibold">{item?.pickupInspection?.conditionNotes || 'N/A'}</span></p>
+                    <p>
+                      Images:{' '}
+                      <span className="font-semibold">
+                        {Array.isArray(item?.pickupInspection?.images) ? item.pickupInspection.images.length : 0}
+                      </span>
+                    </p>
+                  </div>
+
+                  <div className="mt-2 rounded-lg border border-borderColor bg-white p-2 space-y-1">
+                    <p className="font-medium text-gray-700">Return Condition</p>
+                    <p>
+                      Status: <span className="font-semibold">{returnInspectionDone ? 'Submitted' : 'Pending'}</span>
+                    </p>
+                    <p>Notes: <span className="font-semibold">{item?.returnInspection?.conditionNotes || 'N/A'}</span></p>
+                    <p>
+                      Damage:{' '}
+                      <span className="font-semibold">
+                        {item?.returnInspection?.damageDetected ? 'Yes' : 'No'} ({currency}
+                        {damageCost})
+                      </span>
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -791,7 +920,7 @@ const MyBookings = () => {
               )}
 
               {item.type === 'booking' &&
-                resolveRentalStage(item) === 'Scheduled' &&
+                ['Scheduled', 'PendingPayment'].includes(resolveRentalStage(item)) &&
                 !isCancelledBookingStatus(item.bookingStatus) && (
                 <button
                   onClick={async () => {

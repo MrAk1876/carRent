@@ -2,6 +2,7 @@
   import { notifyError } from "./utils/messageBus";
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
+  const STATIC_TENANT_CODE = String(import.meta.env.VITE_TENANT_CODE || '').trim();
 
   const API = axios.create({
     baseURL: API_BASE_URL,
@@ -13,6 +14,18 @@
     if (token) {
       req.headers.Authorization = `Bearer ${token}`;
     }
+
+    try {
+      const rawUser = localStorage.getItem('user');
+      const parsedUser = rawUser ? JSON.parse(rawUser) : null;
+      const tenantCode = String(parsedUser?.tenantCode || STATIC_TENANT_CODE).trim();
+      if (tenantCode) {
+        req.headers['x-tenant-code'] = tenantCode;
+      }
+    } catch {
+      // no-op
+    }
+
     return req;
   });
 
@@ -48,7 +61,12 @@
     }
 
     if (statusCode === 401) return "Please log in to continue.";
-    if (statusCode === 403) return "You do not have permission to perform this action.";
+    if (statusCode === 403) {
+      if (normalizedRaw.includes('tenant') && normalizedRaw.includes('suspend')) {
+        return rawMessage || 'Tenant account is suspended.';
+      }
+      return "You do not have permission to perform this action.";
+    }
     if (statusCode === 404) return "The requested resource was not found.";
     if (statusCode >= 500) return "Server error. Please try again in a moment.";
 

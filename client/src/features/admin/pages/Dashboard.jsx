@@ -16,6 +16,10 @@ const Dashboard = () => {
   const [data, setData] = useState({
     totalCars: 0,
     totalBookings: 0,
+    totalDrivers: 0,
+    availableDrivers: 0,
+    assignedDrivers: 0,
+    driverUtilization: 0,
     confirmedBookings: 0,
     pendingBookings: 0,
     completedBookings: 0,
@@ -26,13 +30,18 @@ const Dashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+  const [branchOptions, setBranchOptions] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const maxRevenueBar = Math.max(...data.revenueTrend.map((item) => item.amount), 1);
 
   const dashboardCards = [
     { title: 'Total Cars', value: data.totalCars, icon: assets.carIconColored, tone: 'bg-blue-50' },
     { title: 'Total Bookings', value: data.totalBookings, icon: assets.listIconColored, tone: 'bg-violet-50' },
+    { title: 'Available Drivers', value: data.availableDrivers, icon: assets.users_icon_colored, tone: 'bg-emerald-50' },
+    { title: 'Assigned Drivers', value: data.assignedDrivers, icon: assets.users_icon_colored, tone: 'bg-blue-50' },
     { title: 'Pending', value: data.pendingBookings, icon: assets.cautionIconColored, tone: 'bg-amber-50' },
     { title: 'Completed', value: data.completedBookings, icon: assets.check_icon, tone: 'bg-emerald-50' },
+    { title: 'Driver Utilization', value: `${data.driverUtilization}%`, icon: assets.dashboardIconColored, tone: 'bg-violet-50' },
   ];
 
   const statusClass = (status) => {
@@ -46,78 +55,104 @@ const Dashboard = () => {
     return 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        setLoading(true);
-        setErrorMsg('');
-        const [bookingsRes, carsRes] = await Promise.all([
-          API.get('/admin/bookings'),
-          API.get('/admin/cars'),
-        ]);
+  const loadDashboard = async () => {
+    try {
+      setLoading(true);
+      setErrorMsg('');
+      const params = selectedBranchId ? { branchId: selectedBranchId } : undefined;
+      const [bookingsRes, carsRes, driversRes] = await Promise.all([
+        API.get('/admin/bookings', { params }),
+        API.get('/admin/cars', { params }),
+        API.get('/admin/drivers', { params }).catch(() => ({ data: { drivers: [], summary: {} } })),
+      ]);
 
-        const bookings = Array.isArray(bookingsRes.data) ? bookingsRes.data : [];
-        const cars = Array.isArray(carsRes.data) ? carsRes.data : [];
-        const sortedBookings = [...bookings].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      const bookings = Array.isArray(bookingsRes.data) ? bookingsRes.data : [];
+      const cars = Array.isArray(carsRes.data) ? carsRes.data : [];
+      const driverSummary = driversRes?.data?.summary || {};
+      const totalDrivers = Number(driverSummary.totalDrivers || 0);
+      const availableDrivers = Number(driverSummary.availableDrivers || 0);
+      const assignedDrivers = Number(driverSummary.assignedDrivers || 0);
+      const driverUtilization = Number(driverSummary.utilizationPercent || 0);
 
-        const pending = bookings.filter((b) => isPendingPaymentBookingStatus(b.bookingStatus));
-        const confirmed = bookings.filter((b) => isConfirmedBookingStatus(b.bookingStatus));
-        const completed = bookings.filter((b) => b.tripStatus === 'completed');
-        const fullyPaidBookings = bookings.filter((b) => isFullyPaidStatus(b.paymentStatus));
+      const sortedBookings = [...bookings].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        const now = new Date();
-        const revenue = fullyPaidBookings
-          .filter((b) => {
-            const receivedAt = b.fullPaymentReceivedAt ? new Date(b.fullPaymentReceivedAt) : new Date(b.updatedAt);
-            return receivedAt.getMonth() === now.getMonth() && receivedAt.getFullYear() === now.getFullYear();
+      const pending = bookings.filter((b) => isPendingPaymentBookingStatus(b.bookingStatus));
+      const confirmed = bookings.filter((b) => isConfirmedBookingStatus(b.bookingStatus));
+      const completed = bookings.filter((b) => b.tripStatus === 'completed');
+      const fullyPaidBookings = bookings.filter((b) => isFullyPaidStatus(b.paymentStatus));
+
+      const now = new Date();
+      const revenue = fullyPaidBookings
+        .filter((b) => {
+          const receivedAt = b.fullPaymentReceivedAt ? new Date(b.fullPaymentReceivedAt) : new Date(b.updatedAt);
+          return receivedAt.getMonth() === now.getMonth() && receivedAt.getFullYear() === now.getFullYear();
+        })
+        .reduce((sum, b) => sum + resolveFinalAmount(b), 0);
+
+      const totalRevenue = fullyPaidBookings.reduce((sum, b) => sum + resolveFinalAmount(b), 0);
+
+      const revenueTrend = [];
+      for (let offset = 5; offset >= 0; offset -= 1) {
+        const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+        const month = monthDate.getMonth();
+        const year = monthDate.getFullYear();
+
+        const amount = fullyPaidBookings
+          .filter((booking) => {
+            const receivedAt = booking.fullPaymentReceivedAt
+              ? new Date(booking.fullPaymentReceivedAt)
+              : new Date(booking.updatedAt);
+            return receivedAt.getMonth() === month && receivedAt.getFullYear() === year;
           })
-          .reduce((sum, b) => sum + resolveFinalAmount(b), 0);
+          .reduce((sum, booking) => sum + resolveFinalAmount(booking), 0);
 
-        const totalRevenue = fullyPaidBookings.reduce((sum, b) => sum + resolveFinalAmount(b), 0);
-
-        const revenueTrend = [];
-        for (let offset = 5; offset >= 0; offset -= 1) {
-          const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1);
-          const month = monthDate.getMonth();
-          const year = monthDate.getFullYear();
-
-          const amount = fullyPaidBookings
-            .filter((booking) => {
-              const receivedAt = booking.fullPaymentReceivedAt
-                ? new Date(booking.fullPaymentReceivedAt)
-                : new Date(booking.updatedAt);
-              return receivedAt.getMonth() === month && receivedAt.getFullYear() === year;
-            })
-            .reduce((sum, booking) => sum + resolveFinalAmount(booking), 0);
-
-          revenueTrend.push({
-            label: monthDate.toLocaleString('default', { month: 'short' }),
-            amount,
-          });
-        }
-
-        const recentBookings = sortedBookings.slice(0, 5);
-
-        setData({
-          totalCars: cars.length,
-          totalBookings: bookings.length,
-          confirmedBookings: confirmed.length,
-          pendingBookings: pending.length,
-          completedBookings: completed.length,
-          recentBookings,
-          monthlyRevenue: revenue,
-          totalRevenue,
-          revenueTrend,
+        revenueTrend.push({
+          label: monthDate.toLocaleString('default', { month: 'short' }),
+          amount,
         });
-      } catch (error) {
-        setErrorMsg(getErrorMessage(error, 'Failed to load dashboard data'));
-      } finally {
-        setLoading(false);
+      }
+
+      const recentBookings = sortedBookings.slice(0, 5);
+
+      setData({
+        totalCars: cars.length,
+        totalBookings: bookings.length,
+        totalDrivers,
+        availableDrivers,
+        assignedDrivers,
+        driverUtilization,
+        confirmedBookings: confirmed.length,
+        pendingBookings: pending.length,
+        completedBookings: completed.length,
+        recentBookings,
+        monthlyRevenue: revenue,
+        totalRevenue,
+        revenueTrend,
+      });
+    } catch (error) {
+      setErrorMsg(getErrorMessage(error, 'Failed to load dashboard data'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const loadBranchOptions = async () => {
+      try {
+        const response = await API.get('/admin/branch-options');
+        const branches = Array.isArray(response.data?.branches) ? response.data.branches : [];
+        setBranchOptions(branches);
+      } catch {
+        setBranchOptions([]);
       }
     };
 
-    loadDashboard();
+    loadBranchOptions();
   }, []);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [selectedBranchId]);
 
   return (
     <div className="admin-section-page px-3.5 pt-6 md:px-10 md:pt-10 pb-8 md:pb-10">
@@ -137,11 +172,23 @@ const Dashboard = () => {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <select
+                  value={selectedBranchId}
+                  onChange={(event) => setSelectedBranchId(event.target.value)}
+                  className="px-3 py-1 rounded-full text-xs bg-white border border-borderColor"
+                >
+                  <option value="">All Branches</option>
+                  {branchOptions.map((branch) => (
+                    <option key={branch._id} value={branch._id}>
+                      {branch.branchName}
+                    </option>
+                  ))}
+                </select>
                 <span className="px-3 py-1 rounded-full text-xs bg-white border border-borderColor">
                   Cars: {data.totalCars}
                 </span>
                 <span className="px-3 py-1 rounded-full text-xs bg-white border border-borderColor">
-                  Bookings: {data.totalBookings}
+                  Drivers: {data.totalDrivers}
                 </span>
                 <span className="px-3 py-1 rounded-full text-xs bg-white border border-borderColor">
                   Total Revenue: {currency}

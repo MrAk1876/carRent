@@ -5,6 +5,7 @@ import { getCroppedImg } from '../../../utils/cropImage';
 import { assets } from '../../../assets/assets';
 import Title from '../components/Title';
 import useNotify from '../../../hooks/useNotify';
+import { normalizeRole } from '../../../utils/rbac';
 
 const AdminProfile = () => {
   const notify = useNotify();
@@ -110,7 +111,7 @@ const AdminProfile = () => {
   if (!user) return null;
 
   const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Admin';
-  const role = user.role || 'admin';
+  const role = normalizeRole(user.role);
 
   return (
     <>

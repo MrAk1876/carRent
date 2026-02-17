@@ -3,6 +3,7 @@ const Review = require('../models/Review');
 const Booking = require('../models/Booking');
 const Car = require('../models/Car');
 const { isConfirmedBookingStatus, normalizeStatusKey } = require('../utils/paymentUtils');
+const { applyCarScopeToQuery, assertCarInScope } = require('../services/adminScopeService');
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 
@@ -230,7 +231,8 @@ exports.getCarReviews = async (req, res) => {
 
 exports.getAllReviews = async (req, res) => {
   try {
-    const reviews = await Review.find()
+    const query = await applyCarScopeToQuery(req.user, {});
+    const reviews = await Review.find(query)
       .populate('user', 'firstName lastName email image')
       .populate('car', 'brand model image location')
       .populate('booking', 'fromDate toDate bookingStatus tripStatus totalAmount')
@@ -253,6 +255,7 @@ exports.updateReviewByAdmin = async (req, res) => {
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
     }
+    await assertCarInScope(req.user, review.car, 'Review does not belong to your branch scope');
 
     const parsedPayload = parseReviewPayload(req.body, false);
     if (parsedPayload.error) {
@@ -280,10 +283,12 @@ exports.deleteReviewByAdmin = async (req, res) => {
       return res.status(400).json({ message: 'Invalid review id' });
     }
 
-    const deleted = await Review.findByIdAndDelete(id);
-    if (!deleted) {
+    const review = await Review.findById(id);
+    if (!review) {
       return res.status(404).json({ message: 'Review not found' });
     }
+    await assertCarInScope(req.user, review.car, 'Review does not belong to your branch scope');
+    await review.deleteOne();
 
     return res.json({ message: 'Review deleted by admin' });
   } catch (error) {

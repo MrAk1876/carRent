@@ -9,7 +9,12 @@ import { getErrorMessage } from '../api';
 import { getCarById } from '../services/carService';
 import { getCarReviews } from '../services/reviewService';
 import { createBookingRequest } from '../services/requestService';
-import { calculateAdvanceBreakdown, calculateTimeBasedRentalAmount } from '../utils/payment';
+import {
+  calculateAdvanceBreakdown,
+  calculateTimeBasedRentalAmount,
+  getRentalDurationHours,
+} from '../utils/payment';
+import { getMySubscription } from '../services/subscriptionService';
 
 const parseCarFeatures = (features) => {
   const parsed = [];
@@ -35,6 +40,12 @@ const parseCarFeatures = (features) => {
   }
 
   return [...new Set(parsed.map((value) => String(value).trim()).filter(Boolean))];
+};
+
+const resolveFleetStatus = (car) => {
+  const normalized = String(car?.fleetStatus || '').trim();
+  if (normalized) return normalized;
+  return car?.isAvailable ? 'Available' : 'Inactive';
 };
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -92,6 +103,45 @@ const buildIsoDateTime = (dateValue, hourValue, minuteValue, periodValue) => {
   const parsed = new Date(`${dateValue}T${normalized24Hour}:00`);
   if (Number.isNaN(parsed.getTime())) return '';
   return parsed.toISOString();
+};
+
+const roundCurrency = (value) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return 0;
+  return Number(numericValue.toFixed(2));
+};
+
+const calculateSubscriptionPreview = ({
+  baseAmount = 0,
+  pickupDateTimeIso,
+  dropDateTimeIso,
+  remainingRentalHours = 0,
+}) => {
+  const safeBaseAmount = roundCurrency(baseAmount);
+  const rentalHours = Math.max(Number(getRentalDurationHours(pickupDateTimeIso, dropDateTimeIso) || 0), 0);
+  const availableHours = Math.max(Number(remainingRentalHours || 0), 0);
+  if (safeBaseAmount <= 0 || rentalHours <= 0) {
+    return {
+      rentalHours,
+      availableHours,
+      coveredHours: 0,
+      coverageAmount: 0,
+      extraAmount: safeBaseAmount,
+    };
+  }
+
+  const coveredHours = Math.min(availableHours, rentalHours);
+  const coverageRatio = coveredHours / rentalHours;
+  const coverageAmount = roundCurrency(safeBaseAmount * coverageRatio);
+  const extraAmount = roundCurrency(Math.max(safeBaseAmount - coverageAmount, 0));
+
+  return {
+    rentalHours: Number(rentalHours.toFixed(2)),
+    availableHours: Number(availableHours.toFixed(2)),
+    coveredHours: Number(coveredHours.toFixed(2)),
+    coverageAmount,
+    extraAmount,
+  };
 };
 
 const ReviewSkeleton = () => (
@@ -163,6 +213,8 @@ const CarDetail = () => {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState('');
   const [offerSuccessMsg, setOfferSuccessMsg] = useState('');
+  const [activeSubscription, setActiveSubscription] = useState(null);
+  const [useSubscription, setUseSubscription] = useState(false);
 
   const loadDetailData = useCallback(async (isCancelled = () => false) => {
     setCarLoading(true);
@@ -170,7 +222,11 @@ const CarDetail = () => {
     setCarError('');
     setReviewsError('');
 
-    const [carResult, reviewResult] = await Promise.allSettled([getCarById(id), getCarReviews(id)]);
+    const [carResult, reviewResult, subscriptionResult] = await Promise.allSettled([
+      getCarById(id),
+      getCarReviews(id),
+      isLoggedIn() && !admin ? getMySubscription() : Promise.resolve(null),
+    ]);
     if (isCancelled()) return;
 
     if (carResult.status === 'fulfilled') {
@@ -187,9 +243,15 @@ const CarDetail = () => {
       setReviewsError('Reviews are not available right now.');
     }
 
+    if (subscriptionResult.status === 'fulfilled') {
+      setActiveSubscription(subscriptionResult.value?.activeSubscription || null);
+    } else {
+      setActiveSubscription(null);
+    }
+
     setCarLoading(false);
     setReviewsLoading(false);
-  }, [id]);
+  }, [id, admin]);
 
   useEffect(() => {
     let cancelled = false;
@@ -214,11 +276,52 @@ const CarDetail = () => {
     () => calculateTimeBasedRentalAmount(pickupDateTimeIso, dropDateTimeIso, car?.pricePerDay),
     [pickupDateTimeIso, dropDateTimeIso, car?.pricePerDay],
   );
+  const subscriptionBranchId = useMemo(() => {
+    if (!activeSubscription) return '';
+    const planBranch = activeSubscription?.planId?.branchId || activeSubscription?.branchId || null;
+    if (!planBranch) return '';
+    if (typeof planBranch === 'string') return planBranch;
+    return planBranch?._id || '';
+  }, [activeSubscription]);
+  const carBranchId = useMemo(() => {
+    const branch = car?.branchId || null;
+    if (!branch) return '';
+    if (typeof branch === 'string') return branch;
+    return branch?._id || '';
+  }, [car]);
+  const subscriptionEligibleForCar = useMemo(() => {
+    if (!activeSubscription) return false;
+    if (!subscriptionBranchId) return true;
+    if (!carBranchId) return false;
+    return subscriptionBranchId === carBranchId;
+  }, [activeSubscription, subscriptionBranchId, carBranchId]);
+  const subscriptionPreview = useMemo(
+    () =>
+      calculateSubscriptionPreview({
+        baseAmount: totalAmount,
+        pickupDateTimeIso,
+        dropDateTimeIso,
+        remainingRentalHours: activeSubscription?.remainingRentalHours || 0,
+      }),
+    [totalAmount, pickupDateTimeIso, dropDateTimeIso, activeSubscription?.remainingRentalHours],
+  );
+  const effectiveTotalAmount = useMemo(
+    () => (useSubscription ? subscriptionPreview.extraAmount : totalAmount),
+    [useSubscription, subscriptionPreview.extraAmount, totalAmount],
+  );
   const formattedBillableDays = useMemo(() => {
     if (!Number.isFinite(totalDays) || totalDays <= 0) return '0';
     return Number.isInteger(totalDays) ? String(totalDays) : totalDays.toFixed(1);
   }, [totalDays]);
-  const quoteBreakdown = useMemo(() => calculateAdvanceBreakdown(totalAmount), [totalAmount]);
+  const carFleetStatus = useMemo(() => resolveFleetStatus(car), [car]);
+  const vehicleBookable = carFleetStatus === 'Available';
+  const unavailabilityMessage = carFleetStatus === 'Maintenance'
+    ? 'Vehicle under maintenance.'
+    : 'Vehicle temporarily unavailable.';
+  const quoteBreakdown = useMemo(
+    () => calculateAdvanceBreakdown(effectiveTotalAmount),
+    [effectiveTotalAmount],
+  );
   const advancePercent = useMemo(() => Math.round(quoteBreakdown.advanceRate * 100), [quoteBreakdown.advanceRate]);
   const features = useMemo(() => parseCarFeatures(car?.features), [car?.features]);
 
@@ -234,6 +337,21 @@ const CarDetail = () => {
 
     if (admin) {
       setBookingError('Admin can view cars but cannot create rental bookings.');
+      return;
+    }
+
+    if (!vehicleBookable) {
+      setBookingError(unavailabilityMessage);
+      return;
+    }
+
+    if (useSubscription && !activeSubscription) {
+      setBookingError('No active subscription found for this booking.');
+      return;
+    }
+
+    if (useSubscription && !subscriptionEligibleForCar) {
+      setBookingError('Your active subscription is not valid for this branch.');
       return;
     }
 
@@ -281,6 +399,7 @@ const CarDetail = () => {
         carId: car._id,
         pickupDateTime: pickupDateTimeIso,
         dropDateTime: dropDateTimeIso,
+        useSubscription,
       });
       navigate('/my-bookings');
     } catch (error) {
@@ -289,6 +408,12 @@ const CarDetail = () => {
       setBookingLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!activeSubscription || !subscriptionEligibleForCar) {
+      setUseSubscription(false);
+    }
+  }, [activeSubscription, subscriptionEligibleForCar]);
 
   if (carLoading) return <CarDetailSkeleton />;
 
@@ -451,13 +576,66 @@ const CarDetail = () => {
               <div>
                 <p className="text-xs uppercase tracking-wide text-gray-500">Your Booking Quote</p>
                 <p className="text-3xl font-semibold text-gray-900">
-                  {currency} {totalAmount || 0}
+                  {currency} {effectiveTotalAmount || 0}
                 </p>
               </div>
               <p className="text-xs text-gray-500 text-right">
                 {car.pricePerDay} / day x {formattedBillableDays} billed day(s)
               </p>
             </div>
+
+            {!admin && activeSubscription ? (
+              <div className={`rounded-lg border p-4 text-sm ${subscriptionEligibleForCar ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/70'}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium text-gray-700">
+                    Active Subscription: {activeSubscription?.planId?.planName || activeSubscription?.planSnapshot?.planName || 'Plan'}
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    Remaining: {Number(activeSubscription?.remainingRentalHours || 0)}h
+                  </p>
+                </div>
+                {subscriptionEligibleForCar ? (
+                  <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={useSubscription}
+                      onChange={(event) => setUseSubscription(event.target.checked)}
+                    />
+                    Use Subscription For This Booking
+                  </label>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-700">
+                    This subscription is branch-specific and is not valid for this vehicle.
+                  </p>
+                )}
+
+                {useSubscription ? (
+                  <div className="mt-3 text-xs text-gray-600 space-y-1">
+                    <p>Rental Hours: <span className="font-medium">{subscriptionPreview.rentalHours}</span></p>
+                    <p>Covered Hours: <span className="font-medium">{subscriptionPreview.coveredHours}</span></p>
+                    <p>
+                      Coverage Value: <span className="font-medium">{currency}{subscriptionPreview.coverageAmount}</span>
+                    </p>
+                    <p>
+                      Extra Payable: <span className="font-medium">{currency}{subscriptionPreview.extraAmount}</span>
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {!admin && !activeSubscription ? (
+              <div className="rounded-lg border border-dashed border-borderColor bg-slate-50 p-3 text-xs text-gray-600">
+                No active subscription. You can book now as one-time rental or activate a subscription plan.
+                <button
+                  type="button"
+                  onClick={() => navigate('/subscription-plans')}
+                  className="ml-2 text-primary font-medium hover:underline"
+                >
+                  View Plans
+                </button>
+              </div>
+            ) : null}
 
             <div className="rounded-lg border border-borderColor bg-light p-4 text-sm">
               <p className="font-medium text-gray-700">Advance Payment Required</p>
@@ -470,6 +648,11 @@ const CarDetail = () => {
             {admin ? (
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
                 Admin view mode: booking and offer actions are disabled.
+              </div>
+            ) : null}
+            {!admin && !vehicleBookable ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                {unavailabilityMessage}
               </div>
             ) : null}
 
@@ -492,7 +675,7 @@ const CarDetail = () => {
                     }
                   }}
                   className="border border-borderColor px-3 py-2 rounded-lg w-full mt-1"
-                  disabled={admin}
+                  disabled={admin || !vehicleBookable}
                   required
                 />
               </div>
@@ -503,7 +686,7 @@ const CarDetail = () => {
                   <select
                     value={pickupHour}
                     onChange={(event) => setPickupHour(event.target.value)}
-                    disabled={admin || !pickupDate}
+                    disabled={admin || !vehicleBookable || !pickupDate}
                     className="border border-borderColor px-2 py-2 rounded-lg w-full"
                   >
                     {TIME_HOURS.map((hour) => (
@@ -515,7 +698,7 @@ const CarDetail = () => {
                   <select
                     value={pickupMinute}
                     onChange={(event) => setPickupMinute(event.target.value)}
-                    disabled={admin || !pickupDate}
+                    disabled={admin || !vehicleBookable || !pickupDate}
                     className="border border-borderColor px-2 py-2 rounded-lg w-full"
                   >
                     {TIME_MINUTES.map((minute) => (
@@ -527,7 +710,7 @@ const CarDetail = () => {
                   <select
                     value={pickupPeriod}
                     onChange={(event) => setPickupPeriod(event.target.value)}
-                    disabled={admin || !pickupDate}
+                    disabled={admin || !vehicleBookable || !pickupDate}
                     className="border border-borderColor px-2 py-2 rounded-lg w-full"
                   >
                     {TIME_PERIODS.map((period) => (
@@ -546,7 +729,7 @@ const CarDetail = () => {
                   value={dropDate}
                   min={pickupDate || todayDate}
                   onChange={(event) => setDropDate(event.target.value)}
-                  disabled={admin || !pickupDate}
+                  disabled={admin || !vehicleBookable || !pickupDate}
                   className="border border-borderColor px-3 py-2 rounded-lg w-full mt-1"
                   required
                 />
@@ -558,7 +741,7 @@ const CarDetail = () => {
                   <select
                     value={dropHour}
                     onChange={(event) => setDropHour(event.target.value)}
-                    disabled={admin || !dropDate}
+                    disabled={admin || !vehicleBookable || !dropDate}
                     className="border border-borderColor px-2 py-2 rounded-lg w-full"
                   >
                     {TIME_HOURS.map((hour) => (
@@ -570,7 +753,7 @@ const CarDetail = () => {
                   <select
                     value={dropMinute}
                     onChange={(event) => setDropMinute(event.target.value)}
-                    disabled={admin || !dropDate}
+                    disabled={admin || !vehicleBookable || !dropDate}
                     className="border border-borderColor px-2 py-2 rounded-lg w-full"
                   >
                     {TIME_MINUTES.map((minute) => (
@@ -582,7 +765,7 @@ const CarDetail = () => {
                   <select
                     value={dropPeriod}
                     onChange={(event) => setDropPeriod(event.target.value)}
-                    disabled={admin || !dropDate}
+                    disabled={admin || !vehicleBookable || !dropDate}
                     className="border border-borderColor px-2 py-2 rounded-lg w-full"
                   >
                     {TIME_PERIODS.map((period) => (
@@ -597,7 +780,7 @@ const CarDetail = () => {
 
             {bookingError ? <p className="text-red-500 text-sm">{bookingError}</p> : null}
 
-            {!admin ? (
+            {!admin && vehicleBookable ? (
               <MakeOfferForm
                 carId={car._id}
                 fromDate={pickupDateTimeIso}
@@ -607,7 +790,7 @@ const CarDetail = () => {
                   setOfferSuccessMsg('Offer sent successfully. Track it in My Bookings.');
                 }}
               />
-            ) : (
+            ) : admin ? (
               <div className="border border-dashed border-borderColor rounded-lg p-4 bg-slate-50/80">
                 <p className="font-medium text-gray-700">Make a Negotiation Offer</p>
                 <p className="text-xs text-gray-400 mt-1">
@@ -621,6 +804,20 @@ const CarDetail = () => {
                   Offer Disabled For Admin
                 </button>
               </div>
+            ) : (
+              <div className="border border-dashed border-amber-200 rounded-lg p-4 bg-amber-50/80">
+                <p className="font-medium text-amber-800">Make a Negotiation Offer</p>
+                <p className="text-xs text-amber-700 mt-1">
+                  {unavailabilityMessage}
+                </p>
+                <button
+                  type="button"
+                  disabled
+                  className="mt-3 px-4 py-2 rounded-lg text-white bg-gray-400 cursor-not-allowed"
+                >
+                  {carFleetStatus === 'Maintenance' ? 'Under Maintenance' : 'Offer Unavailable'}
+                </button>
+              </div>
             )}
 
             {offerSuccessMsg ? <p className="text-green-600 text-xs">{offerSuccessMsg}</p> : null}
@@ -629,9 +826,17 @@ const CarDetail = () => {
               <p className="flex justify-between">
                 <span>Total Amount</span>
                 <span>
-                  {currency} {totalAmount || 0}
+                  {currency} {effectiveTotalAmount || 0}
                 </span>
               </p>
+              {useSubscription ? (
+                <p className="flex justify-between text-emerald-700">
+                  <span>Subscription Coverage</span>
+                  <span>
+                    -{currency} {subscriptionPreview.coverageAmount || 0}
+                  </span>
+                </p>
+              ) : null}
               <p className="flex justify-between">
                 <span>Advance Required ({advancePercent}%)</span>
                 <span>
@@ -648,9 +853,11 @@ const CarDetail = () => {
 
             <button
               type="submit"
-              disabled={bookingLoading || admin}
+              disabled={bookingLoading || admin || !vehicleBookable}
               className={`w-full py-3 text-white rounded-lg font-medium inline-flex items-center justify-center gap-2 ${
-                bookingLoading || admin ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary hover:bg-primary-dull'
+                bookingLoading || admin || !vehicleBookable
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-primary hover:bg-primary-dull'
               }`}
             >
               {bookingLoading ? (
@@ -659,7 +866,13 @@ const CarDetail = () => {
                   Booking...
                 </>
               ) : (
-                admin ? 'Booking Disabled For Admin' : 'Book Now'
+                admin
+                  ? 'Booking Disabled For Admin'
+                  : !vehicleBookable
+                  ? carFleetStatus === 'Maintenance'
+                    ? 'Under Maintenance'
+                    : 'Vehicle Unavailable'
+                  : 'Book Now'
               )}
             </button>
           </form>

@@ -5,18 +5,36 @@ import LiveStageCountdown from '../components/ui/LiveStageCountdown';
 import Title from '../components/Title';
 import { calculateLiveLateMetrics, getGraceDeadlineMs, useCountdown } from '../hooks/useCountdown';
 import useNotify from '../hooks/useNotify';
-import { getUserRentalDashboard, settleUserBookingReturn } from '../services/bookingService';
 import {
+  downloadBookingInvoicePdf,
+  getUserRentalDashboard,
+  settleUserBookingReturn,
+} from '../services/bookingService';
+import {
+  getNormalizedStatusKey,
+  hasPickupInspection,
+  hasReturnInspection,
   isFullyPaidStatus,
+  isPaymentTimeoutCancelled,
   resolveAdvancePaid,
+  resolveDamageCost,
   resolveDropDateTime,
   resolveFinalAmount,
   resolveLateFee,
   resolveLateHours,
   resolveHourlyLateRate,
+  resolvePaymentDeadline,
   resolvePickupDateTime,
+  resolveRefundAmount,
+  resolveRefundProcessedAt,
+  resolveRefundReason,
+  resolveRefundStatus,
+  resolveRentalType,
+  resolveSubscriptionLateFeeDiscountPercent,
   resolveRentalStage,
   resolveRemainingAmount,
+  resolveTotalPaidAmount,
+  isRefundProcessedStatus,
 } from '../utils/payment';
 
 const PAYMENT_METHODS = ['UPI', 'CARD', 'NETBANKING', 'CASH'];
@@ -69,6 +87,8 @@ const buildTimelineState = (booking, stage, lateHours) => {
 };
 
 const stageBadgeClass = (stage) => {
+  if (stage === 'PendingPayment') return 'bg-amber-100 text-amber-700';
+  if (stage === 'Cancelled') return 'bg-red-100 text-red-700';
   if (stage === 'Overdue') return 'bg-red-100 text-red-700';
   if (stage === 'Active') return 'bg-emerald-100 text-emerald-700';
   if (stage === 'Completed') return 'bg-gray-200 text-gray-700';
@@ -100,6 +120,7 @@ const RentalStatusCard = ({
   paymentMethod,
   onPaymentMethodChange,
   onPayRemaining,
+  onDownloadInvoice,
   loadingId,
 }) => {
   const stage = resolveRentalStage(booking) || 'Scheduled';
@@ -109,8 +130,23 @@ const RentalStatusCard = ({
   const lateHours = resolveLateHours(booking);
   const lateFee = resolveLateFee(booking);
   const hourlyLateRate = resolveHourlyLateRate(booking);
+  const damageCost = resolveDamageCost(booking);
+  const rentalType = resolveRentalType(booking);
+  const lateFeeDiscountPercentage = resolveSubscriptionLateFeeDiscountPercent(booking);
+  const pickupInspectionDone = hasPickupInspection(booking);
+  const returnInspectionDone = hasReturnInspection(booking);
   const pickupDateTime = resolvePickupDateTime(booking);
   const dropDateTime = resolveDropDateTime(booking);
+  const paymentDeadline = resolvePaymentDeadline(booking);
+  const refundStatus = resolveRefundStatus(booking);
+  const refundAmount = resolveRefundAmount(booking);
+  const refundReason = resolveRefundReason(booking);
+  const refundProcessedAt = resolveRefundProcessedAt(booking);
+  const netPaidAmount = resolveTotalPaidAmount(booking);
+  const refundProcessed = isRefundProcessedStatus(refundStatus);
+  const normalizedBookingStatus = getNormalizedStatusKey(booking?.bookingStatus);
+  const isPendingPaymentBooking = normalizedBookingStatus === 'PENDINGPAYMENT';
+  const timeoutCancelled = isPaymentTimeoutCancelled(booking);
   const gracePeriodHours = Number.isFinite(Number(booking?.gracePeriodHours))
     ? Math.max(Number(booking.gracePeriodHours), 0)
     : 1;
@@ -130,11 +166,14 @@ const RentalStatusCard = ({
     hourlyLateRate,
     finalAmount,
     advancePaid,
+    damageCost,
+    lateFeeDiscountPercentage,
   });
 
   const displayLateHours = stage === 'Overdue' ? liveMetrics.lateHours : lateHours;
   const displayLateFee = stage === 'Overdue' ? liveMetrics.lateFee : lateFee;
   const displayRemaining = stage === 'Overdue' ? liveMetrics.remainingAmount : storedRemaining;
+  const displayDamageCost = damageCost;
   const timelineSteps = useMemo(() => buildTimelineState(booking, stage, displayLateHours), [booking, stage, displayLateHours]);
 
   return (
@@ -178,16 +217,64 @@ const RentalStatusCard = ({
               {displayLateFee}
             </span>
           </p>
+          <p className="mt-1">
+            Damage Cost:{' '}
+            <span className={`font-medium ${displayDamageCost > 0 ? 'text-red-700' : ''}`}>
+              {currency}
+              {displayDamageCost}
+            </span>
+          </p>
+          <p className="mt-1">
+            Rental Type: <span className="font-medium">{rentalType}</span>
+          </p>
+          {rentalType === 'Subscription' ? (
+            <p className="mt-1">
+              Late Fee Discount:{' '}
+              <span className="font-medium text-emerald-700">{lateFeeDiscountPercentage}%</span>
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <div className="rounded-lg border border-borderColor bg-light p-3">
+          <p className="font-medium text-gray-700">Pickup Condition Summary</p>
+          <p className="mt-1 text-gray-600">
+            Status: <span className="font-medium">{pickupInspectionDone ? 'Submitted' : 'Pending'}</span>
+          </p>
+          <p className="text-gray-600">Notes: {booking?.pickupInspection?.conditionNotes || 'N/A'}</p>
+          <p className="text-gray-600">
+            Images: {Array.isArray(booking?.pickupInspection?.images) ? booking.pickupInspection.images.length : 0}
+          </p>
+        </div>
+        <div className="rounded-lg border border-borderColor bg-light p-3">
+          <p className="font-medium text-gray-700">Return Condition Summary</p>
+          <p className="mt-1 text-gray-600">
+            Status: <span className="font-medium">{returnInspectionDone ? 'Submitted' : 'Pending'}</span>
+          </p>
+          <p className="text-gray-600">Notes: {booking?.returnInspection?.conditionNotes || 'N/A'}</p>
+          <p className="text-gray-600">
+            Damage: {booking?.returnInspection?.damageDetected ? 'Yes' : 'No'} ({currency}{displayDamageCost})
+          </p>
+          <p className="text-gray-600">
+            Images: {Array.isArray(booking?.returnInspection?.images) ? booking.returnInspection.images.length : 0}
+          </p>
         </div>
       </div>
 
       <div className="mt-4">
         <LiveStageCountdown
-          stage={stage}
+          stage={isPendingPaymentBooking ? 'PendingPayment' : stage}
           pickupDateTime={pickupDateTime}
           dropDateTime={dropDateTime}
+          paymentDeadline={isPendingPaymentBooking ? paymentDeadline : null}
           gracePeriodHours={gracePeriodHours}
           className={`text-sm ${
+            stage === 'PendingPayment'
+              ? 'text-amber-700'
+              : stage === 'Cancelled'
+              ? 'text-red-700'
+              : 
             stage === 'Overdue'
               ? 'text-red-700'
               : stage === 'Active'
@@ -199,6 +286,12 @@ const RentalStatusCard = ({
         />
       </div>
 
+      {timeoutCancelled ? (
+        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          Booking cancelled due to unpaid advance.
+        </p>
+      ) : null}
+
       <LiveLateFeeSummary
         className="mt-3"
         stage={stage}
@@ -209,41 +302,78 @@ const RentalStatusCard = ({
         hourlyLateRate={hourlyLateRate}
         finalAmount={finalAmount}
         advancePaid={advancePaid}
+        damageCost={damageCost}
+        lateFeeDiscountPercentage={lateFeeDiscountPercentage}
         currency={currency}
         highlight={stage === 'Overdue'}
       />
 
+      {refundProcessed ? (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+          <p className="font-medium text-emerald-700">Refund Summary</p>
+          <p className="mt-1 text-emerald-700">
+            Refund Status: <span className="font-semibold">{refundStatus}</span>
+          </p>
+          <p className="text-emerald-700">
+            Refund Amount:{' '}
+            <span className="font-semibold">
+              {currency}
+              {refundAmount}
+            </span>
+          </p>
+          <p className="text-emerald-700">
+            Processed At: <span className="font-semibold">{formatDateTime(refundProcessedAt)}</span>
+          </p>
+          <p className="text-emerald-700">
+            Net Paid:{' '}
+            <span className="font-semibold">
+              {currency}
+              {netPaidAmount}
+            </span>
+          </p>
+          {refundReason ? <p className="text-emerald-700">Reason: {refundReason}</p> : null}
+        </div>
+      ) : null}
+
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {stage === 'Overdue' ? (
           <>
-            <select
-              value={paymentMethod}
-              onChange={(event) => onPaymentMethodChange(booking._id, event.target.value)}
-              className="border border-borderColor rounded-lg px-3 py-2 text-sm"
-            >
-              {PAYMENT_METHODS.map((method) => (
-                <option key={`${booking._id}-${method}`} value={method}>
-                  {method}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              disabled={loadingId === booking._id}
-              onClick={() => onPayRemaining(booking._id)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium text-white ${
-                loadingId === booking._id ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
-              }`}
-            >
-              {loadingId === booking._id ? 'Processing...' : 'Pay Remaining'}
-            </button>
+            {returnInspectionDone ? (
+              <>
+                <select
+                  value={paymentMethod}
+                  onChange={(event) => onPaymentMethodChange(booking._id, event.target.value)}
+                  className="border border-borderColor rounded-lg px-3 py-2 text-sm"
+                >
+                  {PAYMENT_METHODS.map((method) => (
+                    <option key={`${booking._id}-${method}`} value={method}>
+                      {method}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={loadingId === booking._id}
+                  onClick={() => onPayRemaining(booking._id)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium text-white ${
+                    loadingId === booking._id ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                >
+                  {loadingId === booking._id ? 'Processing...' : 'Pay Remaining'}
+                </button>
+              </>
+            ) : (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                Return inspection is pending. Please contact admin to complete inspection before payment.
+              </p>
+            )}
           </>
         ) : null}
 
         {stage === 'Completed' ? (
           <button
             type="button"
-            onClick={() => window.alert('Invoice download will be enabled in a future update.')}
+            onClick={() => onDownloadInvoice(booking)}
             className="px-4 py-2 rounded-lg text-sm font-medium border border-borderColor bg-white text-gray-700 hover:bg-slate-50"
           >
             Download Invoice
@@ -266,18 +396,17 @@ const MyRentalStatus = () => {
   const loadRentalStatus = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await getUserRentalDashboard();
+      const data = await getUserRentalDashboard({ showErrorToast: false });
       const normalizedBookings = Array.isArray(data.bookings) ? data.bookings : [];
       setBookings(normalizedBookings);
       setErrorMsg('');
     } catch (error) {
       const safeMessage = getErrorMessage(error, 'Failed to load rental status');
       setErrorMsg(safeMessage);
-      notify.error(safeMessage);
     } finally {
       setLoading(false);
     }
-  }, [notify]);
+  }, []);
 
   useEffect(() => {
     loadRentalStatus();
@@ -308,6 +437,20 @@ const MyRentalStatus = () => {
       notify.error(getErrorMessage(error, 'Failed to complete remaining payment'));
     } finally {
       setLoadingActionId('');
+    }
+  };
+
+  const handleDownloadInvoice = async (booking) => {
+    try {
+      if (!booking?._id) {
+        notify.error('Booking id is required for invoice download');
+        return;
+      }
+
+      await downloadBookingInvoicePdf(booking._id);
+      notify.success('Invoice downloaded');
+    } catch (error) {
+      notify.error(getErrorMessage(error, 'Failed to download invoice'));
     }
   };
 
@@ -345,6 +488,7 @@ const MyRentalStatus = () => {
             paymentMethod={paymentMethodById[booking._id] || 'UPI'}
             onPaymentMethodChange={handlePaymentMethodChange}
             onPayRemaining={handlePayRemaining}
+            onDownloadInvoice={handleDownloadInvoice}
             loadingId={loadingActionId}
           />
         ))}

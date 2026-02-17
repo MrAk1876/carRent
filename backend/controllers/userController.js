@@ -1,18 +1,30 @@
 const Booking = require('../models/Booking');
 const Request = require('../models/Request');
 const User = require('../models/User');
-const Car = require('../models/Car');
 const { uploadImageFromBuffer, deleteImageByPublicId } = require('../utils/cloudinaryImage');
-const { isConfirmedBookingStatus, normalizeStatusKey } = require('../utils/paymentUtils');
 const { syncRentalStagesForBookings } = require('../services/rentalStageService');
 const { finalizeBookingSettlement } = require('../services/bookingSettlementService');
+const { runPendingPaymentTimeoutSweep } = require('../services/bookingPaymentTimeoutService');
+const { releaseCarIfUnblocked } = require('../services/fleetService');
+const { releaseDriverForBooking } = require('../services/driverAllocationService');
+const { isStaffRole } = require('../utils/rbac');
 
 const MIN_PASSWORD_LENGTH = 8;
 
 exports.getMyBookings = async (req, res) => {
   try {
+    try {
+      await runPendingPaymentTimeoutSweep();
+    } catch (sweepError) {
+      console.error('payment timeout sweep failed (user getMyBookings):', sweepError);
+    }
+
     const bookings = await Booking.find({ user: req.user._id })
       .populate('car')
+      .populate('subscriptionPlanId', 'planName durationType durationInDays')
+      .populate('assignedDriver', 'driverName phoneNumber licenseNumber')
+      .populate('pickupInspection.inspectedBy', 'firstName lastName email')
+      .populate('returnInspection.inspectedBy', 'firstName lastName email')
       .sort({ createdAt: -1 });
 
     await syncRentalStagesForBookings(bookings, { persist: true });
@@ -24,12 +36,23 @@ exports.getMyBookings = async (req, res) => {
 
 exports.getUserDashboard = async (req, res) => {
   try {
+    try {
+      await runPendingPaymentTimeoutSweep();
+    } catch (sweepError) {
+      console.error('payment timeout sweep failed (user dashboard):', sweepError);
+    }
+
     const requests = await Request.find({ user: req.user._id })
       .populate('car')
+      .populate('subscriptionPlanId', 'planName durationType durationInDays')
       .sort({ createdAt: -1 });
 
     const bookings = await Booking.find({ user: req.user._id })
       .populate('car')
+      .populate('subscriptionPlanId', 'planName durationType durationInDays')
+      .populate('assignedDriver', 'driverName phoneNumber licenseNumber')
+      .populate('pickupInspection.inspectedBy', 'firstName lastName email')
+      .populate('returnInspection.inspectedBy', 'firstName lastName email')
       .sort({ createdAt: -1 });
 
     await syncRentalStagesForBookings(bookings, { persist: true });
@@ -51,15 +74,14 @@ exports.cancelBooking = async (req, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    if (
-      booking.tripStatus === 'active' ||
-      isConfirmedBookingStatus(booking.bookingStatus) ||
-      normalizeStatusKey(booking.bookingStatus) === 'COMPLETED'
-    ) {
-      await Car.findByIdAndUpdate(booking.car, { isAvailable: true });
+    const carId = booking.car;
+    try {
+      await releaseDriverForBooking(booking, { incrementTripCount: false });
+    } catch (driverReleaseError) {
+      console.error('driver release failed on user booking delete:', driverReleaseError);
     }
-
     await booking.deleteOne();
+    await releaseCarIfUnblocked(carId);
 
     res.json({ message: 'Booking deleted' });
   } catch (error) {
@@ -83,7 +105,9 @@ exports.cancelRequest = async (req, res) => {
       return res.status(400).json({ message: 'Only pending requests can be cancelled' });
     }
 
+    const carId = request.car;
     await request.deleteOne();
+    await releaseCarIfUnblocked(carId);
     res.json({ message: 'Request cancelled' });
   } catch (error) {
     res.status(500).json({ message: 'Cancel failed' });
@@ -92,8 +116,8 @@ exports.cancelRequest = async (req, res) => {
 
 exports.returnBookingAndPayRemaining = async (req, res) => {
   try {
-    if (req.user?.role === 'admin') {
-      return res.status(403).json({ message: 'Admin cannot use user return flow' });
+    if (isStaffRole(req.user?.role)) {
+      return res.status(403).json({ message: 'Staff cannot use user return flow' });
     }
 
     const booking = await Booking.findOne({

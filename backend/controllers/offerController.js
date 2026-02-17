@@ -2,18 +2,32 @@ const Offer = require('../models/Offer');
 const Car = require('../models/Car');
 const Request = require('../models/Request');
 const { calculateAdvanceBreakdown, isAdvancePaidStatus } = require('../utils/paymentUtils');
+const { normalizeFleetStatus, isFleetBookable, FLEET_STATUS } = require('../utils/fleetStatus');
+const { tryReserveCar, updateCarFleetStatus, releaseCarIfUnblocked } = require('../services/fleetService');
+const { syncCarFleetStatusFromMaintenance } = require('../services/maintenanceService');
+const { assertCarBranchActive } = require('../services/branchService');
+const { applyCarScopeToQuery, assertCarInScope } = require('../services/adminScopeService');
 const mongoose = require('mongoose');
+const { queuePendingPaymentEmailForRequest } = require('../services/bookingEmailNotificationService');
+const { resolveSmartPriceForCar, buildPricingAmounts } = require('../services/smartPricingService');
 const {
   normalizeStoredDateTime,
   validateRentalWindow,
   calculateTimeBasedRentalAmount,
   getTimeBasedBillingDays,
 } = require('../utils/rentalDateUtils');
+const { isStaffRole } = require('../utils/rbac');
 
 const MAX_OFFER_ATTEMPTS = 3;
 const TERMINAL_STATUSES = new Set(['accepted', 'rejected', 'expired']);
 
 const isTerminalStatus = (status) => TERMINAL_STATUSES.has(status);
+
+const roundCurrency = (value) => {
+  const numericValue = Number(value || 0);
+  if (!Number.isFinite(numericValue)) return 0;
+  return Number(numericValue.toFixed(2));
+};
 
 const resolveObjectId = (value) => {
   if (!value) return '';
@@ -61,12 +75,38 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     return { error: { status: 422, message: rentalWindowError } };
   }
 
+  const existingPendingRequest = await Request.findOne({
+    user: userId,
+    car: carId,
+    fromDate: normalizedPickupDateTime,
+    toDate: normalizedDropDateTime,
+    status: 'pending',
+  });
+
   const car = await Car.findById(carId);
   if (!car) {
     return { error: { status: 404, message: 'Car not found' } };
   }
 
-  if (!car.isAvailable) {
+  const syncResult = await syncCarFleetStatusFromMaintenance(car._id, { now: new Date() });
+  const activeCar = syncResult?.car || car;
+
+  const fleetStatus = normalizeFleetStatus(
+    activeCar.fleetStatus,
+    activeCar.isAvailable === false ? FLEET_STATUS.INACTIVE : FLEET_STATUS.AVAILABLE,
+  );
+  const { branch } = await assertCarBranchActive(activeCar, 'Vehicle temporarily unavailable');
+  const isHardUnavailable = [FLEET_STATUS.MAINTENANCE, FLEET_STATUS.INACTIVE, FLEET_STATUS.RENTED].includes(fleetStatus);
+  if (isHardUnavailable) {
+    return {
+      error: {
+        status: 422,
+        message: fleetStatus === FLEET_STATUS.MAINTENANCE ? 'Vehicle under maintenance' : 'Vehicle temporarily unavailable',
+      },
+    };
+  }
+
+  if (!existingPendingRequest && !isFleetBookable(fleetStatus)) {
     return { error: { status: 422, message: 'Car is no longer available' } };
   }
 
@@ -74,6 +114,19 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
   if (!Number.isFinite(days) || days <= 0) {
     return { error: { status: 422, message: 'Invalid booking duration' } };
   }
+  const pricingSnapshot = await resolveSmartPriceForCar(activeCar, {
+    now: new Date(),
+    persist: true,
+    branchId: branch?._id || activeCar?.branchId,
+  });
+  const dynamicLockedPerDayPrice = Number(pricingSnapshot?.effectivePricePerDay || activeCar?.pricePerDay || 0);
+  const basePerDayPrice = Number(pricingSnapshot?.basePricePerDay || activeCar?.pricePerDay || 0);
+  const lockedPerDayFromOffer = days > 0 ? roundCurrency(finalAmount / days) : dynamicLockedPerDayPrice;
+  const pricingAmounts = buildPricingAmounts({
+    basePerDayPrice,
+    lockedPerDayPrice: lockedPerDayFromOffer,
+    billingDays: days,
+  });
   const breakdown = calculateAdvanceBreakdown(finalAmount);
 
   const lockedBargain = {
@@ -82,14 +135,6 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     adminCounterPrice: offer.counterPrice,
     status: 'LOCKED',
   };
-
-  const existingPendingRequest = await Request.findOne({
-    user: userId,
-    car: carId,
-    fromDate: normalizedPickupDateTime,
-    toDate: normalizedDropDateTime,
-    status: 'pending',
-  });
 
   if (existingPendingRequest) {
     const previousTotal = Number(existingPendingRequest.finalAmount || existingPendingRequest.totalAmount || 0);
@@ -107,7 +152,14 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     existingPendingRequest.pickupDateTime = normalizedPickupDateTime;
     existingPendingRequest.dropDateTime = normalizedDropDateTime;
     existingPendingRequest.gracePeriodHours = 1;
+    existingPendingRequest.branchId = existingPendingRequest.branchId || branch?._id || null;
     existingPendingRequest.totalAmount = breakdown.finalAmount;
+    existingPendingRequest.lockedPerDayPrice = pricingAmounts.lockedPerDayPrice;
+    existingPendingRequest.basePerDayPrice = pricingAmounts.basePerDayPrice;
+    existingPendingRequest.pricingBaseAmount = pricingAmounts.pricingBaseAmount;
+    existingPendingRequest.pricingLockedAmount = roundCurrency(finalAmount);
+    existingPendingRequest.priceSource = pricingSnapshot?.priceSource || 'Base';
+    existingPendingRequest.priceAdjustmentPercent = Number(pricingSnapshot?.priceAdjustmentPercent || 0);
     existingPendingRequest.finalAmount = breakdown.finalAmount;
     existingPendingRequest.advanceAmount = breakdown.advanceRequired;
     existingPendingRequest.advanceRequired = breakdown.advanceRequired;
@@ -124,38 +176,61 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
       existingPendingRequest.remainingAmount = breakdown.remainingAmount;
     }
     await existingPendingRequest.save();
+    await updateCarFleetStatus(carId, FLEET_STATUS.RESERVED);
+    if (!shouldKeepPaidState) {
+      queuePendingPaymentEmailForRequest(existingPendingRequest);
+    }
 
     return { request: existingPendingRequest, finalAmount };
   }
 
-  const request = await Request.create({
-    user: userId,
-    car: carId,
-    fromDate: normalizedPickupDateTime,
-    toDate: normalizedDropDateTime,
-    pickupDateTime: normalizedPickupDateTime,
-    dropDateTime: normalizedDropDateTime,
-    gracePeriodHours: 1,
-    days,
-    totalAmount: breakdown.finalAmount,
-    finalAmount: breakdown.finalAmount,
-    advanceAmount: breakdown.advanceRequired,
-    advanceRequired: breakdown.advanceRequired,
-    advancePaid: 0,
-    remainingAmount: breakdown.remainingAmount,
-    paymentStatus: 'UNPAID',
-    paymentMethod: 'NONE',
-    bargain: lockedBargain,
-    status: 'pending',
-  });
+  const reservedCar = await tryReserveCar(carId);
+  if (!reservedCar) {
+    return { error: { status: 409, message: 'Vehicle just became unavailable. Please try again.' } };
+  }
+
+  let request;
+  try {
+    request = await Request.create({
+      user: userId,
+      car: carId,
+      branchId: branch?._id || null,
+      fromDate: normalizedPickupDateTime,
+      toDate: normalizedDropDateTime,
+      pickupDateTime: normalizedPickupDateTime,
+      dropDateTime: normalizedDropDateTime,
+      gracePeriodHours: 1,
+      days,
+      totalAmount: breakdown.finalAmount,
+      lockedPerDayPrice: pricingAmounts.lockedPerDayPrice,
+      basePerDayPrice: pricingAmounts.basePerDayPrice,
+      pricingBaseAmount: pricingAmounts.pricingBaseAmount,
+      pricingLockedAmount: roundCurrency(finalAmount),
+      priceSource: pricingSnapshot?.priceSource || 'Base',
+      priceAdjustmentPercent: Number(pricingSnapshot?.priceAdjustmentPercent || 0),
+      finalAmount: breakdown.finalAmount,
+      advanceAmount: breakdown.advanceRequired,
+      advanceRequired: breakdown.advanceRequired,
+      advancePaid: 0,
+      remainingAmount: breakdown.remainingAmount,
+      paymentStatus: 'UNPAID',
+      paymentMethod: 'NONE',
+      bargain: lockedBargain,
+      status: 'pending',
+    });
+  } catch (requestCreationError) {
+    await releaseCarIfUnblocked(carId);
+    throw requestCreationError;
+  }
+  queuePendingPaymentEmailForRequest(request);
 
   return { request, finalAmount };
 };
 
 exports.createOffer = async (req, res) => {
   try {
-    if (req.user?.role === 'admin') {
-      return res.status(403).json({ message: 'Admin can view cars but cannot create rental offers' });
+    if (isStaffRole(req.user?.role)) {
+      return res.status(403).json({ message: 'Staff can view cars but cannot create rental offers' });
     }
 
     const { carId, offeredPrice, message, fromDate, toDate } = req.body;
@@ -165,11 +240,27 @@ exports.createOffer = async (req, res) => {
       return res.status(404).json({ message: 'Car not found' });
     }
 
-    if (!car.isAvailable) {
-      return res.status(422).json({ message: 'Car is currently unavailable' });
+    const syncResult = await syncCarFleetStatusFromMaintenance(car._id, { now: new Date() });
+    const activeCar = syncResult?.car || car;
+    const fleetStatus = normalizeFleetStatus(
+      activeCar.fleetStatus,
+      activeCar.isAvailable === false ? FLEET_STATUS.INACTIVE : FLEET_STATUS.AVAILABLE,
+    );
+    await assertCarBranchActive(activeCar, 'Vehicle temporarily unavailable');
+    if (!isFleetBookable(fleetStatus)) {
+      return res.status(422).json({
+        message: fleetStatus === FLEET_STATUS.MAINTENANCE ? 'Vehicle under maintenance' : 'Vehicle temporarily unavailable',
+      });
     }
 
-    const { days, amount: originalPrice } = calculateTimeBasedRentalAmount(fromDate, toDate, car.pricePerDay);
+    const pricingSnapshot = await resolveSmartPriceForCar(activeCar, {
+      now: new Date(),
+      persist: true,
+      branchId: activeCar?.branchId,
+    });
+    const effectivePerDayPrice = Number(pricingSnapshot?.effectivePricePerDay || activeCar?.pricePerDay || 0);
+
+    const { days, amount: originalPrice } = calculateTimeBasedRentalAmount(fromDate, toDate, effectivePerDayPrice);
     if (!Number.isFinite(days) || days <= 0) {
       return res.status(422).json({ message: 'Invalid booking duration' });
     }
@@ -302,7 +393,8 @@ exports.respondToCounterOffer = async (req, res) => {
 
 exports.getAllOffers = async (req, res) => {
   try {
-    const offers = await Offer.find()
+    const query = await applyCarScopeToQuery(req.user, {});
+    const offers = await Offer.find(query)
       .populate('car')
       .populate('user', 'firstName lastName email')
       .sort({ createdAt: -1 });
@@ -319,6 +411,8 @@ exports.acceptOffer = async (req, res) => {
     if (!offer) {
       return res.status(404).json({ message: 'Offer not found' });
     }
+
+    await assertCarInScope(req.user, offer.car, 'Offer does not belong to your branch scope');
 
     if (isTerminalStatus(offer.status)) {
       return res.status(422).json({ message: `Offer already ${offer.status}` });
@@ -350,6 +444,8 @@ exports.rejectOffer = async (req, res) => {
       return res.status(404).json({ message: 'Offer not found' });
     }
 
+    await assertCarInScope(req.user, offer.car, 'Offer does not belong to your branch scope');
+
     if (isTerminalStatus(offer.status)) {
       return res.status(422).json({ message: `Offer already ${offer.status}` });
     }
@@ -365,10 +461,13 @@ exports.rejectOffer = async (req, res) => {
 
 exports.deleteOffer = async (req, res) => {
   try {
-    const deleted = await Offer.findByIdAndDelete(req.params.id);
-    if (!deleted) {
+    const existingOffer = await Offer.findById(req.params.id);
+    if (!existingOffer) {
       return res.status(404).json({ message: 'Offer not found' });
     }
+
+    await assertCarInScope(req.user, existingOffer.car, 'Offer does not belong to your branch scope');
+    await existingOffer.deleteOne();
 
     return res.json({ message: 'Offer deleted successfully' });
   } catch (error) {
@@ -384,6 +483,8 @@ exports.counterOffer = async (req, res) => {
     if (!offer) {
       return res.status(404).json({ message: 'Offer not found' });
     }
+
+    await assertCarInScope(req.user, offer.car, 'Offer does not belong to your branch scope');
 
     if (isTerminalStatus(offer.status)) {
       return res.status(422).json({ message: `Offer already ${offer.status}` });

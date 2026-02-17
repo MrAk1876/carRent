@@ -45,6 +45,7 @@ import car_image3 from './car_image3.png';
 import car_image4 from './car_image4.png';
 import booking_icon from './booking_icon.svg';
 import booking_colored_icon from './booking_colored_icon.svg';
+import { PERMISSIONS } from '../utils/rbac';
 
 export const cityList = ['New York', 'Los Angeles', 'Houston', 'Chicago'];
 
@@ -100,32 +101,127 @@ export const assets = {
 export const menuLinks = [
   { name: 'Home', path: '/' },
   { name: 'Cars', path: '/cars' },
+  { name: 'Subscription Plans', path: '/subscription-plans' },
+  { name: 'My Subscription', path: '/my-subscription' },
   { name: 'My Bookings', path: '/my-bookings' },
   { name: 'My Rental Status', path: '/my-rental-status' },
 ];
 
 export const ownerMenuLinks = [
-  { name: 'Dashboard', path: '/owner', icon: dashboardIcon, coloredIcon: dashboardIconColored },
-  { name: 'Cars Page', path: '/cars', icon: carIcon, coloredIcon: carIconColored },
+  {
+    name: 'Dashboard',
+    path: '/owner',
+    icon: dashboardIcon,
+    coloredIcon: dashboardIconColored,
+    permission: PERMISSIONS.VIEW_ALL_BOOKINGS,
+  },
+  {
+    name: 'Analytics',
+    path: '/owner/analytics',
+    icon: dashboardIcon,
+    coloredIcon: dashboardIconColored,
+    permission: PERMISSIONS.VIEW_ANALYTICS,
+  },
+  {
+    name: 'Platform',
+    path: '/owner/platform-overview',
+    icon: dashboardIcon,
+    coloredIcon: dashboardIconColored,
+    permission: PERMISSIONS.VIEW_PLATFORM_ANALYTICS,
+    roles: ['PlatformSuperAdmin'],
+  },
+  { name: 'Cars Page', path: '/cars', icon: carIcon, coloredIcon: carIconColored, permission: null },
   {
     name: 'Profile',
     path: '/owner/profile',
     icon: users_icon,
     coloredIcon: users_icon_colored,
+    permission: null,
   },
 
-  { name: 'Add car', path: '/owner/add-car', icon: addIcon, coloredIcon: addIconColored },
-  { name: 'Manage Cars', path: '/owner/manage-cars', icon: carIcon, coloredIcon: carIconColored },
-  { name: 'Manage Bookings', path: '/owner/manage-bookings', icon: listIcon, coloredIcon: listIconColored },
-  { name: 'Manage Offers', path: '/owner/offers', icon: cautionIcon, coloredIcon: cautionIconColored },
-  { name: 'Manage Reviews', path: '/owner/reviews', icon: star_icon, coloredIcon: starIconColored },
-  { name: 'Active Rentals', path: '/owner/bookings', icon: booking_icon, coloredIcon: booking_colored_icon },
-  { name: 'Rental Tracking', path: '/owner/rental-tracking', icon: listIcon, coloredIcon: listIconColored },
+  {
+    name: 'Add car',
+    path: '/owner/add-car',
+    icon: addIcon,
+    coloredIcon: addIconColored,
+    permission: PERMISSIONS.MANAGE_FLEET,
+  },
+  {
+    name: 'Manage Cars',
+    path: '/owner/manage-cars',
+    icon: carIcon,
+    coloredIcon: carIconColored,
+    permission: PERMISSIONS.MANAGE_FLEET,
+  },
+  {
+    name: 'Fleet Overview',
+    path: '/owner/fleet-overview',
+    icon: dashboardIcon,
+    coloredIcon: dashboardIconColored,
+    permission: PERMISSIONS.VIEW_ANALYTICS,
+  },
+  {
+    name: 'Manage Bookings',
+    path: '/owner/manage-bookings',
+    icon: listIcon,
+    coloredIcon: listIconColored,
+    permission: PERMISSIONS.MANAGE_BOOKINGS,
+  },
+  {
+    name: 'Manage Offers',
+    path: '/owner/offers',
+    icon: cautionIcon,
+    coloredIcon: cautionIconColored,
+    permission: PERMISSIONS.MANAGE_OFFERS,
+  },
+  {
+    name: 'Manage Reviews',
+    path: '/owner/reviews',
+    icon: star_icon,
+    coloredIcon: starIconColored,
+    permission: PERMISSIONS.MANAGE_REVIEWS,
+  },
+  {
+    name: 'Active Rentals',
+    path: '/owner/bookings',
+    icon: booking_icon,
+    coloredIcon: booking_colored_icon,
+    permission: PERMISSIONS.MANAGE_BOOKINGS,
+  },
+  {
+    name: 'Rental Tracking',
+    path: '/owner/rental-tracking',
+    icon: listIcon,
+    coloredIcon: listIconColored,
+    permission: PERMISSIONS.VIEW_ALL_BOOKINGS,
+  },
+  {
+    name: 'Drivers',
+    path: '/owner/drivers',
+    icon: users_icon,
+    coloredIcon: users_icon_colored,
+    permission: PERMISSIONS.MANAGE_DRIVERS,
+  },
   {
     name: 'Manage Users',
     path: '/owner/users',
     icon: users_icon,
     coloredIcon: users_icon_colored,
+    permission: PERMISSIONS.MANAGE_USERS,
+  },
+  {
+    name: 'Manage Roles',
+    path: '/owner/manage-roles',
+    icon: users_icon,
+    coloredIcon: users_icon_colored,
+    permission: PERMISSIONS.MANAGE_ROLES,
+  },
+  {
+    name: 'Branches',
+    path: '/owner/branches',
+    icon: location_icon,
+    coloredIcon: location_icon_colored,
+    permission: PERMISSIONS.MANAGE_ROLES,
   },
 ];
 

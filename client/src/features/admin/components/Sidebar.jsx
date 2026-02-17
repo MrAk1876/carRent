@@ -1,11 +1,13 @@
 import React from 'react';
 import { assets, ownerMenuLinks } from '../../../assets/assets';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { getUser } from '../../../utils/auth';
+import { getUser, hasPermission } from '../../../utils/auth';
+import { normalizeRole } from '../../../utils/rbac';
 import './Sidebar.css';
 
 const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
   const admin = getUser();
+  const currentRole = normalizeRole(admin?.role);
   const navigate = useNavigate();
 
   const fullName = `${admin?.firstName || ''} ${admin?.lastName || ''}`.trim() || 'Admin Control';
@@ -16,8 +18,13 @@ const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
     .map((part) => part[0].toUpperCase())
     .join('');
 
-  const coreSection = ownerMenuLinks.filter((link) => link.path === '/owner' || link.path === '/owner/profile');
-  const operationsSection = ownerMenuLinks.filter((link) => link.path !== '/owner' && link.path !== '/owner/profile');
+  const visibleOwnerLinks = ownerMenuLinks.filter((link) => {
+    const permissionAllowed = !link.permission || hasPermission(link.permission);
+    const roleAllowed = !Array.isArray(link.roles) || link.roles.length === 0 || link.roles.includes(currentRole);
+    return permissionAllowed && roleAllowed;
+  });
+  const coreSection = visibleOwnerLinks.filter((link) => link.path === '/owner' || link.path === '/owner/profile');
+  const operationsSection = visibleOwnerLinks.filter((link) => link.path !== '/owner' && link.path !== '/owner/profile');
   const navSections = [
     { title: 'Core', links: coreSection },
     { title: 'Operations', links: operationsSection },
@@ -49,7 +56,7 @@ const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
 
           <div className="owner-sidebar__meta">
             <p className="owner-sidebar__name">{fullName}</p>
-            <p className="owner-sidebar__role">{(admin?.role || 'admin').toUpperCase()}</p>
+            <p className="owner-sidebar__role">{normalizeRole(admin?.role).toUpperCase()}</p>
           </div>
 
           <button

@@ -16,6 +16,11 @@ const SORT_OPTIONS = [
 const CARS_PER_PAGE = 9;
 
 const normalize = (value) => String(value || '').toLowerCase().trim();
+const resolveFleetStatus = (car) => {
+  const normalized = String(car?.fleetStatus || '').trim();
+  if (normalized) return normalized;
+  return car?.isAvailable ? 'Available' : 'Inactive';
+};
 
 const Cars = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -84,7 +89,7 @@ const Cars = () => {
       const matchesSearch = !query || searchSource.includes(query);
       const matchesCategory = selectedCategory === 'all' || car.category === selectedCategory;
       const matchesLocation = selectedLocation === 'all' || car.location === selectedLocation;
-      const matchesAvailability = !availableOnly || Boolean(car.isAvailable);
+      const matchesAvailability = !availableOnly || resolveFleetStatus(car) === 'Available';
 
       return matchesSearch && matchesCategory && matchesLocation && matchesAvailability;
     });
@@ -99,8 +104,10 @@ const Cars = () => {
         return `${left.brand || ''} ${left.model || ''}`.localeCompare(`${right.brand || ''} ${right.model || ''}`);
       }
 
-      if (left.isAvailable !== right.isAvailable) {
-        return left.isAvailable ? -1 : 1;
+      const leftAvailable = resolveFleetStatus(left) === 'Available';
+      const rightAvailable = resolveFleetStatus(right) === 'Available';
+      if (leftAvailable !== rightAvailable) {
+        return leftAvailable ? -1 : 1;
       }
       return Number(left.pricePerDay || 0) - Number(right.pricePerDay || 0);
     });
@@ -109,7 +116,7 @@ const Cars = () => {
   }, [availableOnly, cars, search, selectedCategory, selectedLocation, sortBy]);
 
   const totalCars = cars.length;
-  const availableCars = useMemo(() => cars.filter((car) => Boolean(car.isAvailable)).length, [cars]);
+  const availableCars = useMemo(() => cars.filter((car) => resolveFleetStatus(car) === 'Available').length, [cars]);
   const cityCount = locationOptions.length;
   const totalPages = Math.max(1, Math.ceil(filteredCars.length / CARS_PER_PAGE));
   const pageStartIndex = (currentPage - 1) * CARS_PER_PAGE;

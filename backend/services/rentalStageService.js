@@ -1,5 +1,7 @@
 const Booking = require('../models/Booking');
 const { normalizeStatusKey, isAdvancePaidStatus, isFullyPaidStatus } = require('../utils/paymentUtils');
+const { queueOverdueAlertEmail } = require('./bookingEmailNotificationService');
+const { getSubscriptionLateFeeDiscountPercent, applyPercentageDiscount } = require('./subscriptionService');
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const LATE_RATE_MULTIPLIER = 1.5;
@@ -92,6 +94,16 @@ const resolveAdvancePaidAmount = (booking) => {
 };
 
 const resolvePerDayPrice = (booking) => {
+  const lockedPerDayPrice = Number(booking?.lockedPerDayPrice);
+  if (Number.isFinite(lockedPerDayPrice) && lockedPerDayPrice > 0) {
+    return lockedPerDayPrice;
+  }
+
+  const storedPerDayPrice = Number(booking?.basePerDayPrice);
+  if (Number.isFinite(storedPerDayPrice) && storedPerDayPrice > 0) {
+    return storedPerDayPrice;
+  }
+
   const fromPopulatedCar = Number(booking?.car?.pricePerDay);
   if (Number.isFinite(fromPopulatedCar) && fromPopulatedCar > 0) {
     return fromPopulatedCar;
@@ -103,6 +115,12 @@ const resolvePerDayPrice = (booking) => {
   }
 
   return 0;
+};
+
+const resolveDamageCost = (booking) => {
+  const damageDetected = Boolean(booking?.returnInspection?.damageDetected);
+  if (!damageDetected) return 0;
+  return toPositiveNumber(booking?.returnInspection?.damageCost, 0);
 };
 
 const calculateHourlyLateRate = (perDayPrice) => {
@@ -163,8 +181,10 @@ const buildLateFeeSnapshot = (booking, effectiveStage, now) => {
       if (overdueTimeMs > 0) {
         const computedLateHours = Math.max(Math.ceil(overdueTimeMs / ONE_HOUR_MS), 0);
         lateHours = Math.max(existingLateHours, computedLateHours);
-
-        const calculatedLateFee = roundCurrency(lateHours * hourlyLateRate);
+        const lateFeeDiscountPercentage = getSubscriptionLateFeeDiscountPercent(booking);
+        const calculatedLateFee = roundCurrency(
+          applyPercentageDiscount(lateHours * hourlyLateRate, lateFeeDiscountPercentage),
+        );
         lateFee = Math.max(existingLateFee, calculatedLateFee);
       }
     }
@@ -181,7 +201,8 @@ const buildLateFeeSnapshot = (booking, effectiveStage, now) => {
 
   const finalAmount = resolveFinalAmount(booking);
   const advancePaid = resolveAdvancePaidAmount(booking);
-  const remainingAmount = roundCurrency(Math.max(finalAmount - advancePaid, 0) + lateFee);
+  const damageCost = resolveDamageCost(booking);
+  const remainingAmount = roundCurrency(Math.max(finalAmount - advancePaid, 0) + lateFee + damageCost);
 
   return {
     hourlyLateRate,
@@ -254,6 +275,7 @@ const syncRentalStagesForBookings = async (bookings, options = {}) => {
   }
 
   const operations = [];
+  const overdueAlertBookingIds = [];
 
   for (const booking of bookings) {
     if (!booking?._id) continue;
@@ -266,6 +288,9 @@ const syncRentalStagesForBookings = async (bookings, options = {}) => {
     const updatePayload = {};
     if (nextStage && currentStage !== nextStage) {
       updatePayload.rentalStage = nextStage;
+      if (nextStage === 'Overdue' && currentStage !== 'Overdue') {
+        overdueAlertBookingIds.push(String(booking._id));
+      }
     }
 
     if (
@@ -316,6 +341,12 @@ const syncRentalStagesForBookings = async (bookings, options = {}) => {
 
   if (persist && operations.length > 0) {
     await Booking.bulkWrite(operations, { ordered: false });
+  }
+
+  if (overdueAlertBookingIds.length > 0) {
+    overdueAlertBookingIds.forEach((bookingId) => {
+      queueOverdueAlertEmail(bookingId);
+    });
   }
 
   return {

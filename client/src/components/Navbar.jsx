@@ -4,7 +4,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { isAdmin, isLoggedIn } from '../utils/auth';
 
 const desktopLinkClass = ({ isActive }) =>
-  `px-3 py-2 rounded-lg text-sm transition-all ${
+  `px-3 py-2 rounded-lg text-sm leading-tight whitespace-nowrap transition-all ${
     isActive ? 'bg-primary/12 text-primary font-medium' : 'text-slate-600 hover:text-primary hover:bg-primary/7'
   }`;
 
@@ -80,7 +80,10 @@ const Navbar = ({ setShowLogin }) => {
   };
 
   const isProtectedPath = (path) =>
-    path === '/my-bookings' || path === '/my-rental-status' || path === '/my-profile';
+    path === '/my-bookings' ||
+    path === '/my-rental-status' ||
+    path === '/my-profile' ||
+    path === '/my-subscription';
 
   const handleNavLinkClick = (event, path) => {
     if (isProtectedPath(path) && !loggedIn) {
@@ -93,7 +96,7 @@ const Navbar = ({ setShowLogin }) => {
 
   return (
     <header
-      className={`sticky top-0 z-40 border-b border-borderColor backdrop-blur-md ${
+      className={`sticky top-0 z-40 border-b border-borderColor shadow-[0_4px_16px_rgba(15,23,42,0.06)] backdrop-blur-md ${
         onHomePage ? 'bg-slate-50/95' : 'bg-white/95'
       }`}
     >
@@ -102,7 +105,7 @@ const Navbar = ({ setShowLogin }) => {
           <img src={assets.logo} alt="logo" className="h-7 sm:h-8" />
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1 lg:gap-2">
+        <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5 flex-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {visibleMenuLinks.map((link) => (
             <NavLink
               key={link.path}
@@ -118,7 +121,7 @@ const Navbar = ({ setShowLogin }) => {
         {!admin && (
           <form
             onSubmit={submitSearch}
-            className="hidden lg:flex items-center gap-2 ml-auto border border-borderColor rounded-full px-3 py-1.5 bg-white min-w-55 max-w-75 w-full"
+            className="hidden xl:flex items-center gap-2 ml-auto border border-borderColor rounded-full px-3 py-1.5 bg-white w-[min(360px,30vw)] shrink-0"
           >
             <input
               type="text"
@@ -133,7 +136,7 @@ const Navbar = ({ setShowLogin }) => {
           </form>
         )}
 
-        <div className="hidden md:flex items-center gap-2 lg:gap-3">
+        <div className="hidden lg:flex items-center gap-2 lg:gap-3 shrink-0">
           {admin && (
             <button
               onClick={goOwner}
@@ -172,7 +175,7 @@ const Navbar = ({ setShowLogin }) => {
 
         <button
           type="button"
-          className="md:hidden ml-auto p-2 rounded-lg border border-borderColor bg-white"
+          className="lg:hidden ml-auto p-2 rounded-lg border border-borderColor bg-white"
           aria-label="Menu"
           aria-expanded={open}
           onClick={() => setOpen((prev) => !prev)}
@@ -185,13 +188,13 @@ const Navbar = ({ setShowLogin }) => {
         <button
           type="button"
           aria-label="Close navigation menu"
-          className="md:hidden fixed inset-0 top-16 bg-slate-900/30 z-40"
+          className="lg:hidden fixed inset-0 top-16 bg-slate-900/30 z-40"
           onClick={() => setOpen(false)}
         />
       )}
 
       <div
-        className={`md:hidden fixed top-16 inset-x-0 h-[calc(100dvh-64px)] border-t border-borderColor z-50 transition-all duration-300 ${
+        className={`lg:hidden fixed top-16 inset-x-0 h-[calc(100dvh-64px)] border-t border-borderColor z-50 transition-all duration-300 ${
           onHomePage ? 'bg-slate-50' : 'bg-white'
         } ${open ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-2 opacity-0 pointer-events-none'}`}
       >

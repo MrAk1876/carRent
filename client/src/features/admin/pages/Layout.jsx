@@ -10,9 +10,13 @@ const SECTION_SCROLL_ROUTES = new Set([
   '/owner/manage-bookings',
   '/owner/bookings',
   '/owner/rental-tracking',
+  '/owner/analytics',
+  '/owner/fleet-overview',
+  '/owner/drivers',
   '/owner/users',
   '/owner/offers',
   '/owner/reviews',
+  '/owner/manage-roles',
 ]);
 
 const Layout = () => {

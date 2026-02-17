@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
 import useNotify from '../../../hooks/useNotify';
+import { ROLES, normalizeRole } from '../../../utils/rbac';
 
 const ManageUsers = () => {
   const notify = useNotify();
@@ -74,7 +75,7 @@ const ManageUsers = () => {
   const filteredUsers = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return users
-      .filter((user) => user.role === 'user')
+      .filter((user) => normalizeRole(user.role) === ROLES.USER)
       .filter((user) => {
         if (!normalizedSearch) return true;
         const fullName = `${user.firstName || ''} ${user.lastName || ''}`.toLowerCase();

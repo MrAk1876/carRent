@@ -7,6 +7,7 @@ const normalizeStatusKey = (value) =>
 const ONE_MINUTE_MS = 60 * 1000;
 const HOURS_PER_DAY = 24;
 const HALF_DAY_HOURS = 12;
+const PAYMENT_DEADLINE_WINDOW_MS = 15 * 60 * 1000;
 
 export const getRentalDurationHours = (pickupDateTime, dropDateTime) => {
   if (!pickupDateTime || !dropDateTime) return 0;
@@ -102,6 +103,26 @@ export const resolveHourlyLateRate = (item) => {
   return 0;
 };
 
+export const resolveRentalType = (item) => {
+  const normalized = String(item?.rentalType || '').trim().toLowerCase();
+  if (normalized === 'subscription') return 'Subscription';
+  return 'OneTime';
+};
+
+export const resolveSubscriptionLateFeeDiscountPercent = (item) => {
+  const discount = Number(item?.subscriptionLateFeeDiscountPercentage);
+  if (!Number.isFinite(discount) || discount <= 0) return 0;
+  if (discount >= 100) return 100;
+  return Number(discount.toFixed(2));
+};
+
+export const resolveSubscriptionDamageFeeDiscountPercent = (item) => {
+  const discount = Number(item?.subscriptionDamageFeeDiscountPercentage);
+  if (!Number.isFinite(discount) || discount <= 0) return 0;
+  if (discount >= 100) return 100;
+  return Number(discount.toFixed(2));
+};
+
 export const resolveLateHours = (item) => {
   const lateHours = Number(item?.lateHours);
   if (Number.isFinite(lateHours) && lateHours >= 0) return Math.floor(lateHours);
@@ -114,7 +135,50 @@ export const resolveLateFee = (item) => {
 
   const lateHours = resolveLateHours(item);
   const hourlyLateRate = resolveHourlyLateRate(item);
-  return Math.max(Number((lateHours * hourlyLateRate).toFixed(2)), 0);
+  const subscriptionDiscount = resolveSubscriptionLateFeeDiscountPercent(item);
+  const undiscounted = Math.max(Number((lateHours * hourlyLateRate).toFixed(2)), 0);
+  if (subscriptionDiscount <= 0) return undiscounted;
+  return Math.max(Number((undiscounted * (1 - subscriptionDiscount / 100)).toFixed(2)), 0);
+};
+
+export const resolveDamageCost = (item) => {
+  const damageDetected = Boolean(item?.returnInspection?.damageDetected);
+  if (!damageDetected) return 0;
+  const damageCost = Number(item?.returnInspection?.damageCost);
+  if (Number.isFinite(damageCost) && damageCost >= 0) return damageCost;
+  return 0;
+};
+
+export const hasPickupInspection = (item) =>
+  Boolean(item?.pickupInspection?.isLocked && item?.pickupInspection?.inspectedAt);
+
+export const hasReturnInspection = (item) =>
+  Boolean(item?.returnInspection?.isLocked && item?.returnInspection?.inspectedAt);
+
+export const resolveRefundAmount = (item) => {
+  const refundAmount = Number(item?.refundAmount);
+  if (Number.isFinite(refundAmount) && refundAmount >= 0) return refundAmount;
+  return 0;
+};
+
+export const resolveRefundStatus = (item) => {
+  const status = String(item?.refundStatus || '').trim();
+  return status || 'None';
+};
+
+export const resolveRefundReason = (item) => String(item?.refundReason || '').trim();
+
+export const resolveRefundProcessedAt = (item) => item?.refundProcessedAt || '';
+
+export const isRefundProcessedStatus = (value) => normalizeStatusKey(value) === 'PROCESSED';
+
+export const resolveTotalPaidAmount = (item) => {
+  const advancePaid = resolveAdvancePaid(item);
+  const fullPaymentAmount = Number(item?.fullPaymentAmount);
+  const settledAmount = Number.isFinite(fullPaymentAmount) && fullPaymentAmount >= 0 ? fullPaymentAmount : 0;
+  const grossPaid = advancePaid + settledAmount;
+  const refundAmount = resolveRefundAmount(item);
+  return Math.max(Number((grossPaid - refundAmount).toFixed(2)), 0);
 };
 
 export const resolveRemainingAmount = (item) => {
@@ -127,14 +191,54 @@ export const resolveRemainingAmount = (item) => {
   const advancePaid = resolveAdvancePaid(item);
   const fallbackAdvance = advancePaid > 0 ? advancePaid : resolveAdvanceRequired(item);
   const lateFee = resolveLateFee(item);
-  return Math.max(finalAmount - fallbackAdvance, 0) + lateFee;
+  const damageCost = resolveDamageCost(item);
+  return Math.max(finalAmount - fallbackAdvance, 0) + lateFee + damageCost;
 };
 
 export const resolvePickupDateTime = (item) => item?.pickupDateTime || item?.fromDate || '';
 
 export const resolveDropDateTime = (item) => item?.dropDateTime || item?.toDate || '';
 
+export const resolvePaymentDeadline = (item) => {
+  const explicitDeadline = item?.paymentDeadline;
+  if (explicitDeadline) {
+    const parsed = new Date(explicitDeadline);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+
+  if (normalizeStatusKey(item?.bookingStatus) === 'PENDINGPAYMENT') {
+    const createdAt = new Date(item?.createdAt || '');
+    if (!Number.isNaN(createdAt.getTime())) {
+      return new Date(createdAt.getTime() + PAYMENT_DEADLINE_WINDOW_MS).toISOString();
+    }
+  }
+
+  return '';
+};
+
+export const isPaymentTimeoutCancelled = (item, nowMs = Date.now()) => {
+  if (normalizeStatusKey(item?.bookingStatus) !== 'CANCELLED') return false;
+  if (String(item?.cancellationReason || '').toLowerCase().includes('payment timeout')) return true;
+
+  const advancePaid = resolveAdvancePaid(item);
+  if (advancePaid > 0 || isAdvancePaidStatus(item?.paymentStatus)) return false;
+
+  const paymentDeadline = resolvePaymentDeadline(item);
+  if (!paymentDeadline) return false;
+
+  const paymentDeadlineMs = new Date(paymentDeadline).getTime();
+  if (!Number.isFinite(paymentDeadlineMs)) return false;
+
+  return nowMs > paymentDeadlineMs;
+};
+
 export const resolveRentalStage = (item) => {
+  const bookingStatusKey = normalizeStatusKey(item?.bookingStatus);
+  if (bookingStatusKey === 'PENDINGPAYMENT') return 'PendingPayment';
+  if (bookingStatusKey === 'CANCELLED' || bookingStatusKey === 'REJECTED' || bookingStatusKey === 'CANCELLEDBYUSER') {
+    return 'Cancelled';
+  }
+
   const normalizedStage = String(item?.rentalStage || '').trim();
   if (normalizedStage) return normalizedStage;
 

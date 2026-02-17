@@ -28,18 +28,19 @@ const Hero = () => {
       <div className="absolute top-10 -right-30 w-110 h-110 bg-cyan-200/40 rounded-full blur-3xl" />
 
       <div className="relative max-w-330 mx-auto px-4 md:px-8 xl:px-10 pt-16 pb-16 md:pb-20">
-        <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-8 xl:gap-10 items-center">
+        <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-8 xl:gap-10 items-center">
           <ScrollReveal direction="left">
             <p className="inline-flex items-center gap-2 text-xs md:text-sm px-4 py-1.5 rounded-full border border-borderColor bg-white/90 text-gray-600">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
               Premium Fleet - Negotiation Enabled
             </p>
 
-            <h1 className="mt-5 text-4xl md:text-5xl xl:text-6xl font-semibold leading-[1.08] tracking-tight text-slate-900">
+            <h1 className="mt-5 text-4xl md:text-5xl xl:text-[62px] font-semibold leading-[1.06] tracking-tight text-slate-900 max-w-[15ch]">
               Drive the Right Car
-              <span className="block text-primary mt-1">
+              <span className="block text-primary mt-2 min-h-[1.2em]">
                 <TypingText
                   words={['At the Right Price', 'With Smart Negotiation', 'Without Hidden Surprises']}
+                  className="align-top"
                 />
               </span>
             </h1>

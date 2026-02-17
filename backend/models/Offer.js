@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantScopedPlugin = require('../plugins/tenantScopedPlugin');
 
 const OFFER_STATUSES = ['pending', 'countered', 'accepted', 'rejected', 'expired'];
 
@@ -13,6 +14,12 @@ const offerSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+    },
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Tenant',
+      default: null,
+      index: true,
     },
     originalPrice: {
       type: Number,
@@ -80,5 +87,6 @@ offerSchema.path('toDate').validate(function validateToDate(value) {
 
 offerSchema.index({ user: 1, createdAt: -1 });
 offerSchema.index({ car: 1, status: 1 });
+offerSchema.plugin(tenantScopedPlugin);
 
 module.exports = mongoose.model('Offer', offerSchema);

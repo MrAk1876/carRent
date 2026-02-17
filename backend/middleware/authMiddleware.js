@@ -1,5 +1,8 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { getPermissionsForRole, normalizeRole, normalizeBranches } = require('../utils/rbac');
+const { requireStaff, requireUserRole } = require('./rbacMiddleware');
+const { syncTenantContextFromUser } = require('./tenantMiddleware');
 
 exports.protect = async (req, res, next) => {
   let token;
@@ -21,7 +24,9 @@ exports.protect = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await User.findById(decoded.id).select("-password");
+    req.user = await User.findById(decoded.id)
+      .setOptions({ skipTenantFilter: true })
+      .select("-password");
 
     if (!req.user) {
       return res.status(401).json({ message: "User no longer exists" });
@@ -31,6 +36,26 @@ exports.protect = async (req, res, next) => {
       return res.status(403).json({ message: "Account is blocked" });
     }
 
+    const normalizedRole = normalizeRole(req.user.role);
+    const normalizedBranches = normalizeBranches(req.user.assignedBranches);
+    const roleChanged = normalizedRole !== req.user.role;
+    const branchesChanged =
+      JSON.stringify(normalizedBranches) !== JSON.stringify(Array.isArray(req.user.assignedBranches) ? req.user.assignedBranches : []);
+
+    req.user.role = normalizedRole;
+    req.user.assignedBranches = normalizedBranches;
+    req.user.permissions = getPermissionsForRole(normalizedRole);
+    await syncTenantContextFromUser(req, req.user);
+
+    if (roleChanged || branchesChanged) {
+      User.updateOne(
+        { _id: req.user._id },
+        { $set: { role: normalizedRole, assignedBranches: normalizedBranches } },
+      ).catch((migrationError) => {
+        console.error('role normalization sync failed:', migrationError);
+      });
+    }
+
     next();
   } catch (error) {
     res.status(401).json({ message: "Invalid token" });
@@ -38,15 +63,9 @@ exports.protect = async (req, res, next) => {
 };
 
 exports.adminOnly = (req, res, next) => {
-  if (!req.user || req.user.role !== "admin") {
-    return res.status(403).json({ message: "Admin access only" });
-  }
-  next();
+  return requireStaff(req, res, next);
 };
 
 exports.userOnly = (req, res, next) => {
-  if (!req.user || req.user.role !== "user") {
-    return res.status(403).json({ message: "User access only" });
-  }
-  next();
+  return requireUserRole(req, res, next);
 };

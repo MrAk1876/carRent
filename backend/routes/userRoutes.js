@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, userOnly } = require('../middleware/authMiddleware');
+const { enforceTenantActive } = require('../middleware/tenantMiddleware');
 const { validateProfileData } = require('../middleware/profileValidation');
 const upload = require('../config/upload');
 
@@ -16,11 +17,13 @@ const {
   completeProfile,
 } = require('../controllers/userController');
 
-router.get('/my-bookings', protect, userOnly, getMyBookings);
-router.get('/dashboard', protect, userOnly, getUserDashboard);
-router.delete('/bookings/:id', protect, userOnly, cancelBooking);
-router.put('/bookings/:id/return', protect, userOnly, returnBookingAndPayRemaining);
-router.delete('/requests/:id', protect, userOnly, cancelRequest);
+const bookingTenantGuard = enforceTenantActive({ bookingOnly: true });
+
+router.get('/my-bookings', protect, bookingTenantGuard, userOnly, getMyBookings);
+router.get('/dashboard', protect, bookingTenantGuard, userOnly, getUserDashboard);
+router.delete('/bookings/:id', protect, bookingTenantGuard, userOnly, cancelBooking);
+router.put('/bookings/:id/return', protect, bookingTenantGuard, userOnly, returnBookingAndPayRemaining);
+router.delete('/requests/:id', protect, bookingTenantGuard, userOnly, cancelRequest);
 router.put('/profile', protect, validateProfileData, updateProfile);
 router.put('/complete-profile', protect, upload.single('image'), validateProfileData, completeProfile);
 router.put('/password', protect, changePassword);

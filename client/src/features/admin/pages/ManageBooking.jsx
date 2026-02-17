@@ -14,6 +14,8 @@ const ManageBooking = () => {
   const [bookings, setBookings] = useState([]);
   const [loadingId, setLoadingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [branchOptions, setBranchOptions] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState('');
 
   const toSafeNumber = (value) => {
     const num = Number(value);
@@ -94,7 +96,8 @@ const ManageBooking = () => {
 
   const fetchOwnerBookings = async () => {
     try {
-      const res = await API.get('/admin/requests');
+      const params = selectedBranchId ? { branchId: selectedBranchId } : undefined;
+      const res = await API.get('/admin/requests', { params });
       setBookings(Array.isArray(res.data) ? res.data : []);
       setErrorMsg('');
     } catch (error) {
@@ -103,10 +106,24 @@ const ManageBooking = () => {
   };
 
   useEffect(() => {
+    const loadBranchOptions = async () => {
+      try {
+        const response = await API.get('/admin/branch-options');
+        const branches = Array.isArray(response.data?.branches) ? response.data.branches : [];
+        setBranchOptions(branches);
+      } catch {
+        setBranchOptions([]);
+      }
+    };
+
+    loadBranchOptions();
+  }, []);
+
+  useEffect(() => {
     fetchOwnerBookings();
     const interval = setInterval(fetchOwnerBookings, 8000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedBranchId]);
 
   return (
     <div className="admin-section-page px-4 pt-6 md:pt-10 md:px-10 pb-8 md:pb-10 w-full">
@@ -116,6 +133,22 @@ const ManageBooking = () => {
       />
 
       {errorMsg && <p className="mt-4 text-sm text-red-500">{errorMsg}</p>}
+
+      <div className="mt-5 max-w-6xl flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="text-xs text-gray-500">Filter requests by branch scope</div>
+        <select
+          value={selectedBranchId}
+          onChange={(event) => setSelectedBranchId(event.target.value)}
+          className="w-full md:w-72 rounded-lg border border-borderColor bg-white px-3 py-2 text-sm"
+        >
+          <option value="">All Branches</option>
+          {branchOptions.map((branch) => (
+            <option key={branch._id} value={branch._id}>
+              {branch.branchName}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="mt-6 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4 max-w-6xl">
         <div className="rounded-xl border border-borderColor bg-white p-4 shadow-sm">

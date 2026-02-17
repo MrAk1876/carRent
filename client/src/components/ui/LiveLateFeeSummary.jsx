@@ -10,6 +10,8 @@ const LiveLateFeeSummary = ({
   hourlyLateRate = 0,
   finalAmount = 0,
   advancePaid = 0,
+  damageCost = 0,
+  lateFeeDiscountPercentage = 0,
   currency = '\u20B9',
   className = '',
   highlight = false,
@@ -30,6 +32,8 @@ const LiveLateFeeSummary = ({
     hourlyLateRate,
     finalAmount,
     advancePaid,
+    damageCost,
+    lateFeeDiscountPercentage,
   });
 
   const shouldRender = liveMetrics.lateHours > 0 || liveMetrics.lateFee > 0 || String(stage).toLowerCase() === 'overdue';
@@ -63,4 +67,3 @@ const LiveLateFeeSummary = ({
 };
 
 export default LiveLateFeeSummary;
-
