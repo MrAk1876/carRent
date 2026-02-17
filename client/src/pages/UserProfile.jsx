@@ -191,9 +191,9 @@ const Profile = () => {
 
   return (
     <>
-      <div className="max-w-5xl mx-auto mt-12 px-4 md:px-0">
-        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-          <div className="bg-white rounded-2xl shadow-lg p-6 h-max">
+      <div className="min-h-[calc(100vh-64px)] bg-linear-to-br from-slate-100 via-white to-blue-50 py-8 md:py-12">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 md:px-6 lg:grid-cols-[280px_1fr]">
+          <div className="h-max rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col items-center">
               <button
                 type="button"
@@ -239,8 +239,8 @@ const Profile = () => {
           </div>
 
           <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <h2 className="text-2xl font-semibold">My Profile</h2>
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-2xl font-semibold text-slate-900">My Profile</h2>
               <p className="text-sm text-gray-500 mt-1">Update your personal details and contact information.</p>
               {errorMsg && <p className="text-red-500 text-sm mt-3">{errorMsg}</p>}
 
@@ -328,8 +328,8 @@ const Profile = () => {
               </button>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold">Security</h3>
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-lg font-semibold text-slate-900">Security</h3>
               <p className="text-sm text-gray-500 mt-1">Change your account password.</p>
 
               <div className="relative mt-4">

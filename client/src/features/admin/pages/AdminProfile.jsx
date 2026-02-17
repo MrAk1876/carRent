@@ -115,14 +115,14 @@ const AdminProfile = () => {
 
   return (
     <>
-      <div className="px-4 pt-10 md:px-10 pb-10 w-full">
+      <div className="w-full bg-linear-to-br from-slate-100 via-white to-blue-50 px-4 pb-10 pt-10 md:px-10">
         <Title
           title="My Profile"
           subTitle="Manage your account information, profile photo, and security settings."
         />
 
-        <div className="mt-6 max-w-6xl grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-5">
-          <div className="rounded-2xl border border-borderColor bg-white p-5 md:p-6 shadow-sm">
+        <div className="mt-6 grid max-w-6xl grid-cols-1 gap-5 xl:grid-cols-[2fr_1fr]">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div
@@ -241,7 +241,7 @@ const AdminProfile = () => {
             </button>
           </div>
 
-          <div className="rounded-2xl border border-borderColor bg-white p-5 md:p-6 shadow-sm h-max">
+          <div className="h-max rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
             <h3 className="text-lg font-semibold text-gray-800">Security</h3>
             <p className="text-sm text-gray-500 mt-1">Update your account password.</p>
 
