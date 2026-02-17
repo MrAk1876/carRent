@@ -51,6 +51,24 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/locations", async (req, res) => {
+  try {
+    await ensureMainBranch();
+    const activeBranches = await Branch.find({ isActive: true }).select("_id").lean();
+    const activeBranchIds = activeBranches.map((branch) => branch._id);
+    const query = buildPublicCarQuery(activeBranchIds);
+
+    const locations = await Car.distinct("location", query);
+    const normalizedLocations = [...new Set((locations || []).map((item) => String(item || "").trim()).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b),
+    );
+
+    return res.json(normalizedLocations);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load locations" });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     const car = await Car.findById(req.params.id);

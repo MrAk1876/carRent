@@ -15,3 +15,8 @@ export const getCarById = async (id) => {
   const response = await API.get(`/cars/${id}`);
   return response.data;
 };
+
+export const getCarLocations = async () => {
+  const response = await API.get('/cars/locations', { showErrorToast: false });
+  return Array.isArray(response.data) ? response.data : [];
+};

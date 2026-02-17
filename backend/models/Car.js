@@ -1,14 +1,6 @@
 const mongoose = require("mongoose");
 const { FLEET_STATUS_VALUES, normalizeFleetStatus, fleetStatusToAvailability } = require("../utils/fleetStatus");
 const tenantScopedPlugin = require('../plugins/tenantScopedPlugin');
-const ALLOWED_CAR_LOCATIONS = [
-  "Ahmedabad",
-  "Surat",
-  "Vadodara",
-  "Rajkot",
-  "Gandhinagar",
-  "Jamnagar",
-];
 
 const carSchema = new mongoose.Schema(
   {
@@ -53,10 +45,7 @@ const carSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      enum: {
-        values: ALLOWED_CAR_LOCATIONS,
-        message: "Location must be one of: Ahmedabad, Surat, Vadodara, Rajkot, Gandhinagar, Jamnagar",
-      },
+      minlength: 2,
     },
     branchId: {
       type: mongoose.Schema.Types.ObjectId,

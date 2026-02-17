@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { assets, cityList } from '../assets/assets';
+import { assets } from '../assets/assets';
 import ScrollReveal from './ui/ScrollReveal';
 import TypingText from './ui/TypingText';
 import useNotify from '../hooks/useNotify';
+import { getCarLocations } from '../services/carService';
 
 const Hero = () => {
   const navigate = useNavigate();
@@ -11,14 +12,57 @@ const Hero = () => {
   const [pickupLocation, setPickupLocation] = useState('');
   const [pickupDate, setPickupDate] = useState('');
   const [returnDate, setReturnDate] = useState('');
+  const [cityOptions, setCityOptions] = useState([]);
+  const [loadingLocations, setLoadingLocations] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLocations = async () => {
+      try {
+        setLoadingLocations(true);
+        const locations = await getCarLocations();
+        if (cancelled) return;
+        setCityOptions(Array.isArray(locations) ? locations : []);
+      } catch {
+        if (cancelled) return;
+        setCityOptions([]);
+      } finally {
+        if (!cancelled) {
+          setLoadingLocations(false);
+        }
+      }
+    };
+
+    loadLocations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();
+    if (loadingLocations) {
+      notify.error('Locations are loading. Please wait.');
+      return;
+    }
     if (!pickupLocation || !pickupDate || !returnDate) {
       notify.error('Please fill all fields');
       return;
     }
-    navigate('/cars');
+    if (new Date(returnDate).getTime() < new Date(pickupDate).getTime()) {
+      notify.error('Return date must be after pickup date');
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set('location', pickupLocation);
+    params.set('q', pickupLocation);
+    params.set('pickupDate', pickupDate);
+    params.set('returnDate', returnDate);
+
+    navigate(`/cars?${params.toString()}`);
     window.scrollTo(0, 0);
   };
 
@@ -62,9 +106,12 @@ const Hero = () => {
                     value={pickupLocation}
                     onChange={(e) => setPickupLocation(e.target.value)}
                     className="mt-1.5 border border-borderColor rounded-lg px-3 py-2.5 text-sm w-full bg-white"
+                    disabled={loadingLocations || cityOptions.length === 0}
                   >
-                    <option value="">Select location</option>
-                    {cityList.map((city) => (
+                    <option value="">
+                      {loadingLocations ? 'Loading locations...' : cityOptions.length ? 'Select location' : 'No locations available'}
+                    </option>
+                    {cityOptions.map((city) => (
                       <option value={city} key={city}>
                         {city}
                       </option>

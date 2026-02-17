@@ -21,14 +21,6 @@ const normalizeFeatures = (arr) => {
   return [...new Set(result)];
 };
 
-const ALLOWED_CAR_LOCATIONS = [
-  'Ahmedabad',
-  'Surat',
-  'Vadodara',
-  'Rajkot',
-  'Gandhinagar',
-  'Jamnagar',
-];
 const ALLOWED_CAR_CATEGORIES = [
   'Sedan',
   'SUV',
@@ -45,6 +37,11 @@ const ALLOWED_CAR_CATEGORIES = [
   'Adventure SUV',
   'Luxury Adventure SUV',
 ];
+
+const normalizeStringList = (values = []) =>
+  [...new Set((values || []).map((item) => String(item || '').trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 
 const createEmptyCarForm = () => ({
   name: '',
@@ -111,9 +108,6 @@ const mapCarToForm = (car) => {
     mapped[field] = toDateInputValue(mapped[field]);
   });
 
-  if (!ALLOWED_CAR_LOCATIONS.includes(mapped.location)) {
-    mapped.location = '';
-  }
   if (!ALLOWED_CAR_CATEGORIES.includes(mapped.category)) {
     mapped.category = '';
   }
@@ -134,6 +128,8 @@ const AddCar = () => {
   const [showCrop, setShowCrop] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [locationOptions, setLocationOptions] = useState([]);
+  const [loadingLocations, setLoadingLocations] = useState(true);
 
   const [car, setCar] = useState(createEmptyCarForm);
 
@@ -178,8 +174,8 @@ const AddCar = () => {
         return;
       }
 
-      if (!ALLOWED_CAR_LOCATIONS.includes(car.location)) {
-        setErrorMsg('Please select a valid location from the list');
+      if (!String(car.location || '').trim()) {
+        setErrorMsg('Please provide a valid location');
         setLoading(false);
         return;
       }
@@ -220,6 +216,49 @@ const AddCar = () => {
   };
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadLocationOptions = async () => {
+      try {
+        setLoadingLocations(true);
+        const [locationsResult, branchOptionsResult] = await Promise.allSettled([
+          API.get('/cars/locations', { showErrorToast: false }),
+          API.get('/admin/branch-options', { showErrorToast: false }),
+        ]);
+
+        const locationsFromCars =
+          locationsResult.status === 'fulfilled' && Array.isArray(locationsResult.value?.data)
+            ? locationsResult.value.data
+            : [];
+
+        const locationsFromBranches =
+          branchOptionsResult.status === 'fulfilled'
+            ? (branchOptionsResult.value?.data?.branches || []).map((branch) => branch?.city)
+            : [];
+
+        const normalizedLocations = normalizeStringList([...locationsFromCars, ...locationsFromBranches]);
+        if (!cancelled) {
+          setLocationOptions(normalizedLocations);
+        }
+      } catch {
+        if (!cancelled) {
+          setLocationOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingLocations(false);
+        }
+      }
+    };
+
+    loadLocationOptions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!editId) return;
     API.get('/admin/cars').then((res) => {
       const found = res.data.find((item) => item._id === editId);
@@ -228,9 +267,11 @@ const AddCar = () => {
       setCar(mappedCar);
       setFeatures(normalizeFeatures(found.features));
       setPreviewUrl(found.image || '');
+      if (mappedCar.location) {
+        setLocationOptions((prev) => normalizeStringList([...prev, mappedCar.location]));
+      }
 
       const invalidFields = [];
-      if (!mappedCar.location) invalidFields.push('location');
       if (!mappedCar.category) invalidFields.push('category');
       if (invalidFields.length > 0) {
         setErrorMsg(
@@ -428,19 +469,26 @@ const AddCar = () => {
               </div>
               <div>
                 <label className={labelClass}>Location</label>
-                <select
+                <input
+                  list="car-location-options"
                   onChange={(e) => setCar({ ...car, location: e.target.value })}
                   value={car.location}
                   className={inputClass}
+                  placeholder={loadingLocations ? 'Loading locations...' : 'Select or type location'}
                   required
-                >
-                  <option value="">Select location</option>
-                  {ALLOWED_CAR_LOCATIONS.map((city) => (
-                    <option value={city} key={city}>
-                      {city}
-                    </option>
+                />
+                <datalist id="car-location-options">
+                  {locationOptions.map((city) => (
+                    <option value={city} key={city} />
                   ))}
-                </select>
+                </datalist>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  {loadingLocations
+                    ? 'Loading database locations...'
+                    : locationOptions.length
+                    ? 'Locations are loaded from database.'
+                    : 'No saved locations found yet. You can type a location.'}
+                </p>
               </div>
             </div>
           </div>

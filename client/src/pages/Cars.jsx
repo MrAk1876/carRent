@@ -25,11 +25,15 @@ const resolveFleetStatus = (car) => {
 const Cars = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const querySearch = searchParams.get('q') || '';
+  const queryCategory = searchParams.get('category') || 'all';
+  const queryLocation = searchParams.get('location') || 'all';
+  const querySort = searchParams.get('sort') || 'recommended';
+  const queryAvailableOnly = searchParams.get('available') === '1';
   const [search, setSearch] = useState(querySearch);
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [selectedLocation, setSelectedLocation] = useState('all');
-  const [sortBy, setSortBy] = useState('recommended');
-  const [availableOnly, setAvailableOnly] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(queryCategory);
+  const [selectedLocation, setSelectedLocation] = useState(queryLocation);
+  const [sortBy, setSortBy] = useState(querySort);
+  const [availableOnly, setAvailableOnly] = useState(queryAvailableOnly);
   const [currentPage, setCurrentPage] = useState(1);
 
   const [cars, setCars] = useState([]);
@@ -56,7 +60,31 @@ const Cars = () => {
 
   useEffect(() => {
     setSearch((previous) => (previous === querySearch ? previous : querySearch));
-  }, [querySearch]);
+    setSelectedCategory((previous) => (previous === queryCategory ? previous : queryCategory));
+    setSelectedLocation((previous) => (previous === queryLocation ? previous : queryLocation));
+    setSortBy((previous) => (previous === querySort ? previous : querySort));
+    setAvailableOnly((previous) => (previous === queryAvailableOnly ? previous : queryAvailableOnly));
+  }, [queryAvailableOnly, queryCategory, queryLocation, querySearch, querySort]);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams();
+    const trimmedSearch = search.trim();
+
+    if (trimmedSearch) nextParams.set('q', trimmedSearch);
+    if (selectedCategory !== 'all') nextParams.set('category', selectedCategory);
+    if (selectedLocation !== 'all') nextParams.set('location', selectedLocation);
+    if (sortBy !== 'recommended') nextParams.set('sort', sortBy);
+    if (availableOnly) nextParams.set('available', '1');
+
+    const pickupDate = searchParams.get('pickupDate');
+    const returnDate = searchParams.get('returnDate');
+    if (pickupDate) nextParams.set('pickupDate', pickupDate);
+    if (returnDate) nextParams.set('returnDate', returnDate);
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [availableOnly, search, searchParams, selectedCategory, selectedLocation, setSearchParams, sortBy]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -72,6 +100,7 @@ const Cars = () => {
 
   const filteredCars = useMemo(() => {
     const query = normalize(search);
+    const queryTokens = query.split(/\s+/).filter(Boolean);
 
     const result = cars.filter((car) => {
       const searchSource = [
@@ -86,7 +115,7 @@ const Cars = () => {
         .map((item) => String(item || '').toLowerCase())
         .join(' ');
 
-      const matchesSearch = !query || searchSource.includes(query);
+      const matchesSearch = queryTokens.length === 0 || queryTokens.every((token) => searchSource.includes(token));
       const matchesCategory = selectedCategory === 'all' || car.category === selectedCategory;
       const matchesLocation = selectedLocation === 'all' || car.location === selectedLocation;
       const matchesAvailability = !availableOnly || resolveFleetStatus(car) === 'Available';
@@ -147,7 +176,12 @@ const Cars = () => {
     setSortBy('recommended');
     setAvailableOnly(false);
     setCurrentPage(1);
-    setSearchParams({});
+    const nextParams = new URLSearchParams();
+    const pickupDate = searchParams.get('pickupDate');
+    const returnDate = searchParams.get('returnDate');
+    if (pickupDate) nextParams.set('pickupDate', pickupDate);
+    if (returnDate) nextParams.set('returnDate', returnDate);
+    setSearchParams(nextParams, { replace: true });
   };
 
   return (

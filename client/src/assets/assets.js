@@ -47,8 +47,6 @@ import booking_icon from './booking_icon.svg';
 import booking_colored_icon from './booking_colored_icon.svg';
 import { PERMISSIONS } from '../utils/rbac';
 
-export const cityList = ['New York', 'Los Angeles', 'Houston', 'Chicago'];
-
 export const assets = {
   logo,
   gmail_logo,
