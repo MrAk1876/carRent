@@ -41,6 +41,10 @@ const branchSchema = new mongoose.Schema(
       default: '',
       maxlength: 80,
     },
+    serviceCities: {
+      type: [String],
+      default: [],
+    },
     state: {
       type: String,
       trim: true,
@@ -87,6 +91,16 @@ branchSchema.pre('validate', function normalizeBranchFields() {
   this.branchCode = sanitizeBranchCode(this.branchCode || this.branchName);
   this.address = String(this.address || '').trim();
   this.city = String(this.city || '').trim();
+  this.serviceCities = [
+    ...new Set(
+      [
+        this.city,
+        ...(Array.isArray(this.serviceCities) ? this.serviceCities : []),
+      ]
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 20);
   this.state = String(this.state || '').trim();
   this.contactNumber = String(this.contactNumber || '').trim();
   const multiplier = Number(this.dynamicPricingMultiplier);

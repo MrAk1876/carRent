@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import NavbarOwner from '../components/NavbarOwner';
 import Sidebar from '../components/Sidebar';
 import { Outlet, useLocation } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import '../components/SectionScroll.css';
 
 const SECTION_SCROLL_ROUTES = new Set([
@@ -18,6 +19,18 @@ const SECTION_SCROLL_ROUTES = new Set([
   '/owner/reviews',
   '/owner/manage-roles',
 ]);
+
+const adminContentTransition = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -6 },
+};
+
+const AdminContentLoader = () => (
+  <div className="flex min-h-[40vh] w-full items-center justify-center px-4 text-sm text-slate-500">
+    Loading...
+  </div>
+);
 
 const Layout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -74,7 +87,21 @@ const Layout = () => {
             useSectionScroll ? 'admin-main--section' : ''
           }`}
         >
-          <Outlet />
+          <Suspense fallback={<AdminContentLoader />}>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={location.pathname}
+                variants={adminContentTransition}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className="min-h-full"
+              >
+                <Outlet />
+              </motion.div>
+            </AnimatePresence>
+          </Suspense>
         </main>
       </div>
     </div>

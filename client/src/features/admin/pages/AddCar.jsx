@@ -43,6 +43,9 @@ const normalizeStringList = (values = []) =>
     a.localeCompare(b),
   );
 
+const normalizeBranchCities = (branch) =>
+  normalizeStringList([branch?.city, ...(Array.isArray(branch?.serviceCities) ? branch.serviceCities : [])]);
+
 const createEmptyCarForm = () => ({
   name: '',
   brand: '',
@@ -53,6 +56,7 @@ const createEmptyCarForm = () => ({
   transmission: '',
   fuel_type: '',
   seating_capacity: '',
+  branchId: '',
   location: '',
   registrationNumber: '',
   chassisNumber: '',
@@ -75,6 +79,7 @@ const CAR_FORM_FIELDS = [
   'transmission',
   'fuel_type',
   'seating_capacity',
+  'branchId',
   'location',
   'registrationNumber',
   'chassisNumber',
@@ -101,6 +106,12 @@ const mapCarToForm = (car) => {
 
   const mapped = createEmptyCarForm();
   CAR_FORM_FIELDS.forEach((field) => {
+    if (field === 'branchId') {
+      mapped.branchId = typeof car?.branchId === 'object' && car?.branchId?._id
+        ? String(car.branchId._id)
+        : String(car?.branchId || '');
+      return;
+    }
     mapped[field] = car[field] ?? '';
   });
 
@@ -128,8 +139,10 @@ const AddCar = () => {
   const [showCrop, setShowCrop] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [locationOptions, setLocationOptions] = useState([]);
-  const [loadingLocations, setLoadingLocations] = useState(true);
+  const [branchOptions, setBranchOptions] = useState([]);
+  const [loadingBranches, setLoadingBranches] = useState(true);
+  const [branchSelectionScoped, setBranchSelectionScoped] = useState(false);
+  const [originalBranchId, setOriginalBranchId] = useState('');
 
   const [car, setCar] = useState(createEmptyCarForm);
 
@@ -147,6 +160,17 @@ const AddCar = () => {
   ];
 
   const safeFeatures = useMemo(() => normalizeFeatures(features), [features]);
+  const selectedBranch = useMemo(
+    () => branchOptions.find((branch) => String(branch?._id || '') === String(car.branchId || '')) || null,
+    [branchOptions, car.branchId],
+  );
+  const locationOptions = useMemo(() => {
+    const branchCities = selectedBranch ? normalizeBranchCities(selectedBranch) : [];
+    if (car.location) {
+      return normalizeStringList([...branchCities, car.location]);
+    }
+    return branchCities;
+  }, [selectedBranch, car.location]);
   const inputClass = 'px-3 py-2 mt-1 border border-borderColor rounded-lg outline-none bg-white w-full';
   const labelClass = 'text-xs font-medium uppercase tracking-wide text-gray-500';
 
@@ -174,8 +198,19 @@ const AddCar = () => {
         return;
       }
 
+      if (!String(car.branchId || '').trim()) {
+        setErrorMsg('Please select a branch');
+        setLoading(false);
+        return;
+      }
+
       if (!String(car.location || '').trim()) {
         setErrorMsg('Please provide a valid location');
+        setLoading(false);
+        return;
+      }
+      if (locationOptions.length > 0 && !locationOptions.includes(car.location)) {
+        setErrorMsg('Please select a city that belongs to the selected branch');
         setLoading(false);
         return;
       }
@@ -198,6 +233,10 @@ const AddCar = () => {
       }
 
       if (editId) {
+        if (originalBranchId && car.branchId && originalBranchId !== car.branchId) {
+          await API.put(`/admin/cars/${editId}/transfer-branch`, { branchId: car.branchId });
+        }
+        formData.delete('branchId');
         await API.put(`/admin/cars/${editId}`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
@@ -218,40 +257,36 @@ const AddCar = () => {
   useEffect(() => {
     let cancelled = false;
 
-    const loadLocationOptions = async () => {
+    const loadBranchOptions = async () => {
       try {
-        setLoadingLocations(true);
-        const [locationsResult, branchOptionsResult] = await Promise.allSettled([
-          API.get('/cars/locations', { showErrorToast: false }),
-          API.get('/admin/branch-options', { showErrorToast: false }),
-        ]);
+        setLoadingBranches(true);
+        const branchOptionsResult = await API.get('/admin/branch-options', {
+          showErrorToast: false,
+          cacheTtlMs: 5 * 60 * 1000,
+        });
+        const scoped = Boolean(branchOptionsResult?.data?.scoped);
+        const branches = Array.isArray(branchOptionsResult?.data?.branches) ? branchOptionsResult.data.branches : [];
 
-        const locationsFromCars =
-          locationsResult.status === 'fulfilled' && Array.isArray(locationsResult.value?.data)
-            ? locationsResult.value.data
-            : [];
-
-        const locationsFromBranches =
-          branchOptionsResult.status === 'fulfilled'
-            ? (branchOptionsResult.value?.data?.branches || []).map((branch) => branch?.city)
-            : [];
-
-        const normalizedLocations = normalizeStringList([...locationsFromCars, ...locationsFromBranches]);
         if (!cancelled) {
-          setLocationOptions(normalizedLocations);
+          setBranchSelectionScoped(scoped);
+          setBranchOptions(branches);
+          if (branches.length === 1) {
+            setCar((prev) => (prev.branchId ? prev : { ...prev, branchId: String(branches[0]?._id || '') }));
+          }
         }
       } catch {
         if (!cancelled) {
-          setLocationOptions([]);
+          setBranchSelectionScoped(false);
+          setBranchOptions([]);
         }
       } finally {
         if (!cancelled) {
-          setLoadingLocations(false);
+          setLoadingBranches(false);
         }
       }
     };
 
-    loadLocationOptions();
+    loadBranchOptions();
 
     return () => {
       cancelled = true;
@@ -259,17 +294,26 @@ const AddCar = () => {
   }, []);
 
   useEffect(() => {
+    if (!selectedBranch) return;
+    const branchCities = normalizeBranchCities(selectedBranch);
+    if (branchCities.length === 0) return;
+    if (car.location) return;
+    setCar((prev) => ({
+      ...prev,
+      location: branchCities[0],
+    }));
+  }, [selectedBranch, car.location]);
+
+  useEffect(() => {
     if (!editId) return;
-    API.get('/admin/cars').then((res) => {
+    API.get('/admin/cars', { showErrorToast: false }).then((res) => {
       const found = res.data.find((item) => item._id === editId);
       if (!found) return;
       const mappedCar = mapCarToForm(found);
       setCar(mappedCar);
+      setOriginalBranchId(String(mappedCar.branchId || ''));
       setFeatures(normalizeFeatures(found.features));
       setPreviewUrl(found.image || '');
-      if (mappedCar.location) {
-        setLocationOptions((prev) => normalizeStringList([...prev, mappedCar.location]));
-      }
 
       const invalidFields = [];
       if (!mappedCar.category) invalidFields.push('category');
@@ -424,6 +468,34 @@ const AddCar = () => {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className={labelClass}>Branch</label>
+                <select
+                  value={car.branchId}
+                  onChange={(e) => setCar({ ...car, branchId: e.target.value, location: '' })}
+                  className={inputClass}
+                  required
+                  disabled={loadingBranches || (branchSelectionScoped && branchOptions.length <= 1)}
+                >
+                  <option value="">
+                    {loadingBranches
+                      ? 'Loading branches...'
+                      : branchOptions.length
+                      ? 'Select branch'
+                      : 'No branch available'}
+                  </option>
+                  {branchOptions.map((branch) => (
+                    <option value={branch._id} key={branch._id}>
+                      {branch.branchName} {branch.state ? `(${branch.state})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  {branchSelectionScoped
+                    ? 'Your role is scoped to assigned branch options.'
+                    : 'Choose the branch first to load allowed cities.'}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -469,25 +541,30 @@ const AddCar = () => {
               </div>
               <div>
                 <label className={labelClass}>Location</label>
-                <input
-                  list="car-location-options"
+                <select
                   onChange={(e) => setCar({ ...car, location: e.target.value })}
                   value={car.location}
                   className={inputClass}
-                  placeholder={loadingLocations ? 'Loading locations...' : 'Select or type location'}
                   required
-                />
-                <datalist id="car-location-options">
+                  disabled={!car.branchId || locationOptions.length === 0}
+                >
+                  <option value="">
+                    {!car.branchId
+                      ? 'Select branch first'
+                      : locationOptions.length
+                      ? 'Select city'
+                      : 'No city mapped for this branch'}
+                  </option>
                   {locationOptions.map((city) => (
-                    <option value={city} key={city} />
+                    <option value={city} key={city}>
+                      {city}
+                    </option>
                   ))}
-                </datalist>
+                </select>
                 <p className="mt-1 text-[11px] text-gray-500">
-                  {loadingLocations
-                    ? 'Loading database locations...'
-                    : locationOptions.length
-                    ? 'Locations are loaded from database.'
-                    : 'No saved locations found yet. You can type a location.'}
+                  {locationOptions.length
+                    ? 'City options are loaded from selected branch.'
+                    : 'Branch has no configured city list yet.'}
                 </p>
               </div>
             </div>

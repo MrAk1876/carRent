@@ -17,6 +17,24 @@ export const getCarById = async (id) => {
 };
 
 export const getCarLocations = async () => {
-  const response = await API.get('/cars/locations', { showErrorToast: false });
+  const response = await API.get('/cars/locations', {
+    showErrorToast: false,
+    cacheTtlMs: 5 * 60 * 1000,
+  });
   return Array.isArray(response.data) ? response.data : [];
+};
+
+export const getCarFilterOptions = async () => {
+  const response = await API.get('/cars/filter-options', {
+    showErrorToast: false,
+    cacheTtlMs: 5 * 60 * 1000,
+  });
+  const payload = response?.data || {};
+
+  return {
+    states: Array.isArray(payload.states) ? payload.states : [],
+    cities: Array.isArray(payload.cities) ? payload.cities : [],
+    citiesByState:
+      payload.citiesByState && typeof payload.citiesByState === 'object' ? payload.citiesByState : {},
+  };
 };

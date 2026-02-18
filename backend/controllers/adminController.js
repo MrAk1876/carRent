@@ -57,6 +57,7 @@ const {
 const {
   ensureMainBranch,
   ensureBranchById,
+  ensureCarBranch,
   assertCarBranchActive,
   toValidBranchCode,
 } = require('../services/branchService');
@@ -130,12 +131,21 @@ const ensureSuperAdminAccess = (user) => {
 const normalizeBranchForClient = (branch) => {
   if (!branch) return null;
 
+  const serviceCities = [
+    ...new Set(
+      [branch.city, ...(Array.isArray(branch.serviceCities) ? branch.serviceCities : [])]
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean),
+    ),
+  ];
+
   return {
     _id: String(branch._id),
     branchName: String(branch.branchName || '').trim(),
     branchCode: String(branch.branchCode || '').trim(),
     address: String(branch.address || '').trim(),
     city: String(branch.city || '').trim(),
+    serviceCities,
     state: String(branch.state || '').trim(),
     contactNumber: String(branch.contactNumber || '').trim(),
     manager: branch.manager || null,
@@ -157,6 +167,31 @@ const normalizeBranchInputList = (rawValue) => {
         .filter(Boolean),
     );
   }
+  return [];
+};
+
+const normalizeCityList = (rawValue) => {
+  if (Array.isArray(rawValue)) {
+    return [
+      ...new Set(
+        rawValue
+          .map((entry) => String(entry || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
+
+  if (typeof rawValue === 'string') {
+    return [
+      ...new Set(
+        rawValue
+          .split(/[\n,]/g)
+          .map((entry) => String(entry || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
+
   return [];
 };
 
@@ -302,6 +337,33 @@ const parseOptionalPositivePrice = (value) => {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue) || numericValue <= 0) return NaN;
   return Number(numericValue.toFixed(2));
+};
+
+const getBranchServiceCities = (branch) =>
+  [
+    ...new Set(
+      [branch?.city, ...(Array.isArray(branch?.serviceCities) ? branch.serviceCities : [])]
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean),
+    ),
+  ];
+
+const assertLocationAllowedForBranch = (branch, locationValue) => {
+  const location = String(locationValue || '').trim();
+  if (!location) {
+    const error = new Error('Location is required');
+    error.status = 422;
+    throw error;
+  }
+
+  const allowedCities = getBranchServiceCities(branch);
+  if (allowedCities.length === 0) return;
+
+  if (!allowedCities.includes(location)) {
+    const error = new Error(`Location must belong to selected branch cities: ${allowedCities.join(', ')}`);
+    error.status = 422;
+    throw error;
+  }
 };
 
 const formatPricingHistoryEntry = (entry) => ({
@@ -480,7 +542,7 @@ exports.getAllRequests = async (req, res) => {
     const requests = await Request.find(query)
       .populate('car')
       .populate('subscriptionPlanId', 'planName durationType durationInDays')
-      .populate('branchId', 'branchName branchCode isActive')
+      .populate('branchId', 'branchName branchCode city state serviceCities isActive')
       .populate('user', 'firstName lastName email role isBlocked image')
       .sort({ createdAt: -1 });
 
@@ -1193,7 +1255,7 @@ exports.getAllCars = async (req, res) => {
     }
 
     const cars = await Car.find(query)
-      .populate('branchId', 'branchName branchCode isActive')
+      .populate('branchId', 'branchName branchCode city state serviceCities isActive')
       .sort({ createdAt: -1 });
     res.status(200).json(cars);
   } catch (error) {
@@ -1216,7 +1278,7 @@ exports.getFleetOverview = async (req, res) => {
         ? (scopedBranchIds.length > 0 ? { _id: { $in: scopedBranchIds } } : { _id: { $in: [] } })
         : {};
     const branches = await Branch.find(branchQuery)
-      .select('_id branchName branchCode city state isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
+      .select('_id branchName branchCode city state serviceCities isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
       .sort({ branchName: 1 })
       .lean();
 
@@ -1469,6 +1531,7 @@ exports.addCar = async (req, res) => {
     const data = pickCarPayload(req.body);
     const targetBranch = await resolveBranchForCarWrite(req.user, req.body?.branchId);
     data.branchId = targetBranch?._id || null;
+    assertLocationAllowedForBranch(targetBranch, data.location);
     await assertTenantEntityLimit(req, {
       model: Car,
       limitField: 'maxVehicles',
@@ -1565,6 +1628,11 @@ exports.updateCar = async (req, res) => {
     const data = pickCarPayload(req.body);
     const previousImagePublicId = existingCar.imagePublicId || '';
     const previousBasePricePerDay = Number(existingCar.pricePerDay || 0);
+    const { branch: existingBranch } = await ensureCarBranch(existingCar);
+
+    if (Object.prototype.hasOwnProperty.call(data, 'location')) {
+      assertLocationAllowedForBranch(existingBranch, data.location);
+    }
 
     if (req.file) {
       uploadedImage = await uploadImageFromBuffer(req.file, { folder: 'car-rental/cars' });
@@ -1874,7 +1942,7 @@ exports.getAllBookings = async (req, res) => {
     const bookings = await Booking.find(query)
       .populate('car')
       .populate('subscriptionPlanId', 'planName durationType durationInDays')
-      .populate('branchId', 'branchName branchCode isActive')
+      .populate('branchId', 'branchName branchCode city state serviceCities isActive')
       .populate('user', 'firstName lastName email')
       .populate('assignedDriver', 'driverName phoneNumber licenseNumber licenseExpiry availabilityStatus isActive branchId currentAssignedBooking')
       .populate('pickupInspection.inspectedBy', 'firstName lastName email')
@@ -1948,7 +2016,7 @@ exports.getRoleManagementData = async (req, res) => {
   try {
     const users = await User.find().select('-password').sort({ createdAt: -1 }).lean();
     const branches = await Branch.find()
-      .select('_id branchName branchCode city state isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
+      .select('_id branchName branchCode city state serviceCities isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
       .sort({ branchName: 1 })
       .lean();
     const normalizedUsers = users.map(normalizeUserForClient);
@@ -2011,6 +2079,21 @@ exports.updateUserRole = async (req, res) => {
       return res.status(403).json({ message: 'Only PlatformSuperAdmin can modify this user role' });
     }
 
+    if (nextRole === ROLE.SUPER_ADMIN && currentRole !== ROLE.SUPER_ADMIN) {
+      const superAdminQuery = {
+        role: ROLE.SUPER_ADMIN,
+        _id: { $ne: targetUser._id },
+      };
+      if (targetUser?.tenantId) {
+        superAdminQuery.tenantId = targetUser.tenantId;
+      }
+
+      const existingSuperAdmin = await User.findOne(superAdminQuery).select('_id email').lean();
+      if (existingSuperAdmin?._id) {
+        return res.status(422).json({ message: 'Only one SuperAdmin is allowed. Change existing SuperAdmin role first.' });
+      }
+    }
+
     const previousState = {
       role: currentRole,
       isBlocked: Boolean(targetUser.isBlocked),
@@ -2067,7 +2150,13 @@ exports.updateUserRole = async (req, res) => {
     });
   } catch (error) {
     console.error('updateUserRole error:', error);
-    return res.status(500).json({ message: 'Failed to update user role' });
+    if (error?.name === 'ValidationError') {
+      const firstError = Object.values(error.errors || {})[0];
+      return res.status(422).json({ message: firstError?.message || error.message || 'Validation failed' });
+    }
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to update user role' : error.message;
+    return res.status(status).json({ message });
   }
 };
 
@@ -2080,7 +2169,7 @@ exports.getBranchOptions = async (req, res) => {
         : {};
 
     const branches = await Branch.find(branchQuery)
-      .select('_id branchName branchCode city state isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
+      .select('_id branchName branchCode city state serviceCities isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
       .sort({ branchName: 1 })
       .lean();
 
@@ -2157,11 +2246,16 @@ exports.createBranch = async (req, res) => {
       managerId = manager._id;
     }
 
+    const requestedCity = String(req.body?.city || '').trim();
+    const requestedServiceCities = normalizeCityList(req.body?.serviceCities);
+    const serviceCities = [...new Set([requestedCity, ...requestedServiceCities].filter(Boolean))];
+
     const branch = await Branch.create({
       branchName,
       branchCode,
       address: String(req.body?.address || '').trim(),
-      city: String(req.body?.city || '').trim(),
+      city: requestedCity || serviceCities[0] || '',
+      serviceCities,
       state: String(req.body?.state || '').trim(),
       contactNumber: String(req.body?.contactNumber || '').trim(),
       manager: managerId,
@@ -2234,6 +2328,9 @@ exports.updateBranch = async (req, res) => {
 
     if (req.body?.address !== undefined) branch.address = String(req.body.address || '').trim();
     if (req.body?.city !== undefined) branch.city = String(req.body.city || '').trim();
+    if (req.body?.serviceCities !== undefined) {
+      branch.serviceCities = normalizeCityList(req.body.serviceCities);
+    }
     if (req.body?.state !== undefined) branch.state = String(req.body.state || '').trim();
     if (req.body?.contactNumber !== undefined) branch.contactNumber = String(req.body.contactNumber || '').trim();
     if (req.body?.isActive !== undefined) branch.isActive = parseBooleanInput(req.body.isActive, Boolean(branch.isActive));
@@ -2266,6 +2363,12 @@ exports.updateBranch = async (req, res) => {
         manager.assignedBranches = normalizeBranches([...(manager.assignedBranches || []), String(branch._id)]);
         await manager.save();
       }
+    }
+
+    const normalizedBranchCities = [...new Set([branch.city, ...normalizeCityList(branch.serviceCities)].filter(Boolean))];
+    branch.serviceCities = normalizedBranchCities;
+    if (!String(branch.city || '').trim() && normalizedBranchCities.length > 0) {
+      branch.city = normalizedBranchCities[0];
     }
 
     await branch.save();

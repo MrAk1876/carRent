@@ -127,6 +127,26 @@ userSchema.pre('validate', function normalizeRoleFields() {
   this.assignedBranches = normalizeBranches(this.assignedBranches);
 });
 
+userSchema.pre('validate', async function enforceSingleSuperAdmin() {
+  if (this.role !== ROLE.SUPER_ADMIN) return;
+
+  const tenantFilter = this.tenantId
+    ? { tenantId: this.tenantId }
+    : {
+        $or: [{ tenantId: { $exists: false } }, { tenantId: null }],
+      };
+
+  const existingSuperAdmin = await this.constructor.exists({
+    ...tenantFilter,
+    role: ROLE.SUPER_ADMIN,
+    _id: { $ne: this._id },
+  });
+
+  if (existingSuperAdmin) {
+    this.invalidate('role', 'Only one SuperAdmin is allowed for this tenant');
+  }
+});
+
 userSchema.plugin(tenantScopedPlugin);
 
 module.exports = mongoose.model('User', userSchema);

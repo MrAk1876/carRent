@@ -9,7 +9,8 @@
     "dev": "nodemon server.js",
     "dev:single": "nodemon --watch . --ext js,cjs,mjs,json --ignore node_modules --exec node devServer.js",
     "migrate:images": "node scripts/migrateLocalImagesToCloudinary.js",
-    "migrate:atlas": "node scripts/migrateLocalMongoToAtlas.js"
+    "migrate:atlas": "node scripts/migrateLocalMongoToAtlas.js",
+    "setup:state-branches": "node scripts/ensureFiveStateBranches.js"
   },
   "keywords": [],
   "author": "",

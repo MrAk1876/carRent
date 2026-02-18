@@ -242,12 +242,9 @@ const ManageBranches = () => {
         </button>
       </div>
 
-      <div className="admin-section-scroll-shell admin-section-scroll-shell--table mt-6">
-        <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
-        <div className="admin-section-scroll admin-section-scroll--free admin-section-scroll--table">
-          <div className="max-w-6xl w-full rounded-2xl overflow-hidden border border-borderColor bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-275 border-collapse text-left text-sm">
+      <div className="mt-6 max-w-6xl w-full rounded-2xl overflow-hidden border border-borderColor bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-275 border-collapse text-left text-sm">
                 <thead className="bg-light text-gray-700">
                   <tr>
                     <th className="p-3 font-medium">Branch</th>
@@ -258,7 +255,7 @@ const ManageBranches = () => {
                     <th className="p-3 font-medium">Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+            <tbody>
                   {loading ? (
                     <tr className="border-t border-borderColor">
                       <td colSpan={6} className="p-8 text-center text-gray-500">
@@ -374,12 +371,9 @@ const ManageBranches = () => {
                         </tr>
                       );
                     })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+            </tbody>
+          </table>
         </div>
-        <span className="admin-section-blur admin-section-blur--bottom" aria-hidden="true" />
       </div>
     </div>
   );

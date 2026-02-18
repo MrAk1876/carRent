@@ -146,7 +146,10 @@ const Dashboard = () => {
   useEffect(() => {
     const loadBranchOptions = async () => {
       try {
-        const response = await API.get('/admin/branch-options', { showErrorToast: false });
+        const response = await API.get('/admin/branch-options', {
+          showErrorToast: false,
+          cacheTtlMs: 5 * 60 * 1000,
+        });
         const branches = Array.isArray(response.data?.branches) ? response.data.branches : [];
         setBranchOptions(branches);
       } catch {

@@ -4,7 +4,7 @@ import { assets } from '../assets/assets';
 import CarCard from '../components/CarCard';
 import ScrollReveal from '../components/ui/ScrollReveal';
 import SkeletonCard from '../components/ui/SkeletonCard';
-import { getCars } from '../services/carService';
+import { getCarFilterOptions, getCars } from '../services/carService';
 
 const SORT_OPTIONS = [
   { label: 'Recommended', value: 'recommended' },
@@ -16,27 +16,40 @@ const SORT_OPTIONS = [
 const CARS_PER_PAGE = 9;
 
 const normalize = (value) => String(value || '').toLowerCase().trim();
+const normalizeText = (value) => String(value || '').trim();
 const resolveFleetStatus = (car) => {
   const normalized = String(car?.fleetStatus || '').trim();
   if (normalized) return normalized;
   return car?.isAvailable ? 'Available' : 'Inactive';
 };
+const getCarState = (car) => normalizeText(car?.branchId?.state || car?.state);
+const isGenericState = (value) => {
+  const normalized = normalize(value);
+  return !normalized || normalized === 'main state' || normalized === 'main';
+};
+const uniqueSorted = (values = []) =>
+  [...new Set((values || []).map((value) => normalizeText(value)).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 
 const Cars = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const querySearch = searchParams.get('q') || '';
   const queryCategory = searchParams.get('category') || 'all';
-  const queryLocation = searchParams.get('location') || 'all';
+  const queryState = searchParams.get('state') || 'all';
+  const queryCity = searchParams.get('city') || searchParams.get('location') || 'all';
   const querySort = searchParams.get('sort') || 'recommended';
   const queryAvailableOnly = searchParams.get('available') === '1';
   const [search, setSearch] = useState(querySearch);
   const [selectedCategory, setSelectedCategory] = useState(queryCategory);
-  const [selectedLocation, setSelectedLocation] = useState(queryLocation);
+  const [selectedState, setSelectedState] = useState(queryState);
+  const [selectedCity, setSelectedCity] = useState(queryCity);
   const [sortBy, setSortBy] = useState(querySort);
   const [availableOnly, setAvailableOnly] = useState(queryAvailableOnly);
   const [currentPage, setCurrentPage] = useState(1);
 
   const [cars, setCars] = useState([]);
+  const [filterOptions, setFilterOptions] = useState({ states: [], cities: [], citiesByState: {} });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -44,10 +57,17 @@ const Cars = () => {
     try {
       setLoading(true);
       setError('');
-      const list = await getCars();
+      const [list, options] = await Promise.all([getCars(), getCarFilterOptions()]);
       setCars(Array.isArray(list) ? list : []);
+      setFilterOptions({
+        states: Array.isArray(options?.states) ? options.states : [],
+        cities: Array.isArray(options?.cities) ? options.cities : [],
+        citiesByState:
+          options?.citiesByState && typeof options.citiesByState === 'object' ? options.citiesByState : {},
+      });
     } catch {
       setCars([]);
+      setFilterOptions({ states: [], cities: [], citiesByState: {} });
       setError('Failed to load cars. Please try again.');
     } finally {
       setLoading(false);
@@ -61,10 +81,11 @@ const Cars = () => {
   useEffect(() => {
     setSearch((previous) => (previous === querySearch ? previous : querySearch));
     setSelectedCategory((previous) => (previous === queryCategory ? previous : queryCategory));
-    setSelectedLocation((previous) => (previous === queryLocation ? previous : queryLocation));
+    setSelectedState((previous) => (previous === queryState ? previous : queryState));
+    setSelectedCity((previous) => (previous === queryCity ? previous : queryCity));
     setSortBy((previous) => (previous === querySort ? previous : querySort));
     setAvailableOnly((previous) => (previous === queryAvailableOnly ? previous : queryAvailableOnly));
-  }, [queryAvailableOnly, queryCategory, queryLocation, querySearch, querySort]);
+  }, [queryAvailableOnly, queryCategory, queryCity, querySearch, querySort, queryState]);
 
   useEffect(() => {
     const nextParams = new URLSearchParams();
@@ -72,7 +93,11 @@ const Cars = () => {
 
     if (trimmedSearch) nextParams.set('q', trimmedSearch);
     if (selectedCategory !== 'all') nextParams.set('category', selectedCategory);
-    if (selectedLocation !== 'all') nextParams.set('location', selectedLocation);
+    if (selectedState !== 'all') nextParams.set('state', selectedState);
+    if (selectedCity !== 'all') {
+      nextParams.set('city', selectedCity);
+      nextParams.set('location', selectedCity);
+    }
     if (sortBy !== 'recommended') nextParams.set('sort', sortBy);
     if (availableOnly) nextParams.set('available', '1');
 
@@ -84,19 +109,68 @@ const Cars = () => {
     if (nextParams.toString() !== searchParams.toString()) {
       setSearchParams(nextParams, { replace: true });
     }
-  }, [availableOnly, search, searchParams, selectedCategory, selectedLocation, setSearchParams, sortBy]);
+  }, [availableOnly, search, searchParams, selectedCategory, selectedCity, selectedState, setSearchParams, sortBy]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, selectedCategory, selectedLocation, sortBy, availableOnly]);
+  }, [search, selectedCategory, selectedCity, selectedState, sortBy, availableOnly]);
 
   const categoryOptions = useMemo(() => {
     return [...new Set(cars.map((car) => String(car.category || '').trim()).filter(Boolean))];
   }, [cars]);
 
-  const locationOptions = useMemo(() => {
-    return [...new Set(cars.map((car) => String(car.location || '').trim()).filter(Boolean))];
-  }, [cars]);
+  const stateOptions = useMemo(() => {
+    const fromCars = uniqueSorted(cars.map((car) => getCarState(car)).filter((state) => !isGenericState(state)));
+    return uniqueSorted([...(filterOptions.states || []), ...fromCars]);
+  }, [cars, filterOptions.states]);
+
+  const cityToStateMap = useMemo(() => {
+    const map = new Map();
+    Object.entries(filterOptions.citiesByState || {}).forEach(([state, cities]) => {
+      (Array.isArray(cities) ? cities : []).forEach((city) => {
+        const normalizedCity = normalizeText(city).toLowerCase();
+        if (!normalizedCity || map.has(normalizedCity)) return;
+        map.set(normalizedCity, state);
+      });
+    });
+    return map;
+  }, [filterOptions.citiesByState]);
+
+  const resolveDisplayState = useCallback(
+    (car) => {
+      const directState = getCarState(car);
+      if (!isGenericState(directState)) return directState;
+      const inferredState = cityToStateMap.get(normalizeText(car?.location).toLowerCase());
+      return inferredState || directState;
+    },
+    [cityToStateMap],
+  );
+
+  const cityOptions = useMemo(() => {
+    const stateCityPool =
+      selectedState !== 'all' && selectedState
+        ? filterOptions.citiesByState?.[selectedState] || []
+        : filterOptions.cities || [];
+
+    const fromCars = cars
+      .filter((car) => {
+        if (selectedState === 'all') return true;
+        return resolveDisplayState(car) === selectedState;
+      })
+      .map((car) => String(car.location || '').trim())
+      .filter(Boolean);
+
+    return uniqueSorted([...stateCityPool, ...fromCars]);
+  }, [cars, filterOptions.cities, filterOptions.citiesByState, selectedState, resolveDisplayState]);
+
+  useEffect(() => {
+    if (selectedState === 'all') return;
+    if (selectedCity === 'all') return;
+    if (!selectedCity) return;
+    if (!cityOptions.includes(selectedCity)) {
+      setSelectedCity('all');
+    }
+  }, [cityOptions, selectedCity, selectedState]);
 
   const filteredCars = useMemo(() => {
     const query = normalize(search);
@@ -108,6 +182,7 @@ const Cars = () => {
         car.brand,
         car.model,
         car.category,
+        resolveDisplayState(car),
         car.location,
         car.transmission,
         car.fuel_type,
@@ -117,10 +192,11 @@ const Cars = () => {
 
       const matchesSearch = queryTokens.length === 0 || queryTokens.every((token) => searchSource.includes(token));
       const matchesCategory = selectedCategory === 'all' || car.category === selectedCategory;
-      const matchesLocation = selectedLocation === 'all' || car.location === selectedLocation;
+      const matchesState = selectedState === 'all' || resolveDisplayState(car) === selectedState;
+      const matchesCity = selectedCity === 'all' || car.location === selectedCity;
       const matchesAvailability = !availableOnly || resolveFleetStatus(car) === 'Available';
 
-      return matchesSearch && matchesCategory && matchesLocation && matchesAvailability;
+      return matchesSearch && matchesCategory && matchesState && matchesCity && matchesAvailability;
     });
 
     result.sort((left, right) => {
@@ -142,11 +218,12 @@ const Cars = () => {
     });
 
     return result;
-  }, [availableOnly, cars, search, selectedCategory, selectedLocation, sortBy]);
+  }, [availableOnly, cars, search, selectedCategory, selectedCity, selectedState, sortBy, resolveDisplayState]);
 
   const totalCars = cars.length;
   const availableCars = useMemo(() => cars.filter((car) => resolveFleetStatus(car) === 'Available').length, [cars]);
-  const cityCount = locationOptions.length;
+  const cityCount = cityOptions.length;
+  const stateCount = stateOptions.length;
   const totalPages = Math.max(1, Math.ceil(filteredCars.length / CARS_PER_PAGE));
   const pageStartIndex = (currentPage - 1) * CARS_PER_PAGE;
   const paginatedCars = filteredCars.slice(pageStartIndex, pageStartIndex + CARS_PER_PAGE);
@@ -161,7 +238,7 @@ const Cars = () => {
   }, [currentPage, totalPages]);
 
   const hasActiveFilters =
-    Boolean(search.trim()) || selectedCategory !== 'all' || selectedLocation !== 'all' || availableOnly;
+    Boolean(search.trim()) || selectedCategory !== 'all' || selectedState !== 'all' || selectedCity !== 'all' || availableOnly;
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -172,7 +249,8 @@ const Cars = () => {
   const clearFilters = () => {
     setSearch('');
     setSelectedCategory('all');
-    setSelectedLocation('all');
+    setSelectedState('all');
+    setSelectedCity('all');
     setSortBy('recommended');
     setAvailableOnly(false);
     setCurrentPage(1);
@@ -214,6 +292,10 @@ const Cars = () => {
                   <p className="font-semibold text-emerald-700">{availableCars}</p>
                 </div>
                 <div className="px-3.5 py-2 rounded-xl border border-borderColor bg-white">
+                  <p className="text-slate-500 text-xs">States</p>
+                  <p className="font-semibold text-slate-800">{stateCount}</p>
+                </div>
+                <div className="px-3.5 py-2 rounded-xl border border-borderColor bg-white">
                   <p className="text-slate-500 text-xs">Cities</p>
                   <p className="font-semibold text-slate-800">{cityCount}</p>
                 </div>
@@ -223,7 +305,7 @@ const Cars = () => {
 
           <ScrollReveal delay={90}>
             <div className="mt-7 rounded-2xl border border-borderColor bg-white/90 backdrop-blur p-4 md:p-5 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.3fr_0.8fr_0.8fr_0.9fr] gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr_0.9fr] gap-3">
                 <label className="relative block">
                   <span className="sr-only">Search cars</span>
                   <img src={assets.search_icon} alt="search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-75" />
@@ -250,12 +332,29 @@ const Cars = () => {
                 </select>
 
                 <select
-                  value={selectedLocation}
-                  onChange={(event) => setSelectedLocation(event.target.value)}
+                  value={selectedState}
+                  onChange={(event) => {
+                    setSelectedState(event.target.value);
+                    setSelectedCity('all');
+                  }}
                   className="border border-borderColor rounded-lg h-11 px-3 text-sm outline-none bg-white"
                 >
-                  <option value="all">All locations</option>
-                  {locationOptions.map((option) => (
+                  <option value="all">All states</option>
+                  {stateOptions.map((option) => (
+                    <option value={option} key={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={selectedCity}
+                  onChange={(event) => setSelectedCity(event.target.value)}
+                  className="border border-borderColor rounded-lg h-11 px-3 text-sm outline-none bg-white"
+                  disabled={selectedState !== 'all' && cityOptions.length === 0}
+                >
+                  <option value="all">All cities</option>
+                  {cityOptions.map((option) => (
                     <option value={option} key={option}>
                       {option}
                     </option>
@@ -345,7 +444,7 @@ const Cars = () => {
             {filteredCars.length === 0 ? (
               <div className="mt-6 rounded-2xl border border-borderColor bg-white p-8 text-center">
                 <h3 className="text-lg font-semibold text-slate-800">No cars match these filters</h3>
-                <p className="text-sm text-slate-500 mt-2">Try changing search text, location, or category.</p>
+                <p className="text-sm text-slate-500 mt-2">Try changing search text, state, city, or category.</p>
                 <button
                   type="button"
                   onClick={clearFilters}

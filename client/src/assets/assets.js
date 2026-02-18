@@ -128,7 +128,6 @@ export const ownerMenuLinks = [
     permission: PERMISSIONS.VIEW_PLATFORM_ANALYTICS,
     roles: ['PlatformSuperAdmin'],
   },
-  { name: 'Cars Page', path: '/cars', icon: carIcon, coloredIcon: carIconColored, permission: null },
   {
     name: 'Profile',
     path: '/owner/profile',

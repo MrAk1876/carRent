@@ -4,50 +4,72 @@ import { assets } from '../assets/assets';
 import ScrollReveal from './ui/ScrollReveal';
 import TypingText from './ui/TypingText';
 import useNotify from '../hooks/useNotify';
-import { getCarLocations } from '../services/carService';
+import { getCarFilterOptions } from '../services/carService';
 
 const Hero = () => {
   const navigate = useNavigate();
   const notify = useNotify();
-  const [pickupLocation, setPickupLocation] = useState('');
+  const [selectedState, setSelectedState] = useState('');
+  const [selectedCity, setSelectedCity] = useState('');
   const [pickupDate, setPickupDate] = useState('');
   const [returnDate, setReturnDate] = useState('');
-  const [cityOptions, setCityOptions] = useState([]);
-  const [loadingLocations, setLoadingLocations] = useState(true);
+  const [stateOptions, setStateOptions] = useState([]);
+  const [cityOptionsByState, setCityOptionsByState] = useState({});
+  const [loadingFilters, setLoadingFilters] = useState(true);
+
+  const cityOptions = selectedState
+    ? cityOptionsByState[selectedState] || []
+    : [];
 
   useEffect(() => {
     let cancelled = false;
 
-    const loadLocations = async () => {
+    const loadFilterOptions = async () => {
       try {
-        setLoadingLocations(true);
-        const locations = await getCarLocations();
+        setLoadingFilters(true);
+        const options = await getCarFilterOptions();
         if (cancelled) return;
-        setCityOptions(Array.isArray(locations) ? locations : []);
+        setStateOptions(Array.isArray(options.states) ? options.states : []);
+        setCityOptionsByState(
+          options.citiesByState && typeof options.citiesByState === 'object' ? options.citiesByState : {},
+        );
       } catch {
         if (cancelled) return;
-        setCityOptions([]);
+        setStateOptions([]);
+        setCityOptionsByState({});
       } finally {
         if (!cancelled) {
-          setLoadingLocations(false);
+          setLoadingFilters(false);
         }
       }
     };
 
-    loadLocations();
+    loadFilterOptions();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedState) {
+      setSelectedCity('');
+      return;
+    }
+
+    const allowedCities = cityOptionsByState[selectedState] || [];
+    if (selectedCity && !allowedCities.includes(selectedCity)) {
+      setSelectedCity('');
+    }
+  }, [selectedState, selectedCity, cityOptionsByState]);
+
   const handleSearch = (e) => {
     e.preventDefault();
-    if (loadingLocations) {
+    if (loadingFilters) {
       notify.error('Locations are loading. Please wait.');
       return;
     }
-    if (!pickupLocation || !pickupDate || !returnDate) {
+    if (!selectedState || !selectedCity || !pickupDate || !returnDate) {
       notify.error('Please fill all fields');
       return;
     }
@@ -57,8 +79,10 @@ const Hero = () => {
     }
 
     const params = new URLSearchParams();
-    params.set('location', pickupLocation);
-    params.set('q', pickupLocation);
+    params.set('state', selectedState);
+    params.set('city', selectedCity);
+    params.set('location', selectedCity);
+    params.set('q', `${selectedState} ${selectedCity}`);
     params.set('pickupDate', pickupDate);
     params.set('returnDate', returnDate);
 
@@ -98,18 +122,44 @@ const Hero = () => {
               onSubmit={handleSearch}
               className="mt-8 rounded-2xl border border-borderColor bg-white p-4 md:p-5 shadow-[0_14px_35px_rgba(15,23,42,0.08)]"
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.05fr_1fr_1fr_auto] gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3">
                 <div>
-                  <label className="text-xs uppercase tracking-wide text-slate-500">Pickup Location</label>
+                  <label className="text-xs uppercase tracking-wide text-slate-500">State</label>
                   <select
                     required
-                    value={pickupLocation}
-                    onChange={(e) => setPickupLocation(e.target.value)}
+                    value={selectedState}
+                    onChange={(e) => setSelectedState(e.target.value)}
                     className="mt-1.5 border border-borderColor rounded-lg px-3 py-2.5 text-sm w-full bg-white"
-                    disabled={loadingLocations || cityOptions.length === 0}
+                    disabled={loadingFilters || stateOptions.length === 0}
                   >
                     <option value="">
-                      {loadingLocations ? 'Loading locations...' : cityOptions.length ? 'Select location' : 'No locations available'}
+                      {loadingFilters ? 'Loading states...' : stateOptions.length ? 'Select state' : 'No states available'}
+                    </option>
+                    {stateOptions.map((state) => (
+                      <option value={state} key={state}>
+                        {state}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs uppercase tracking-wide text-slate-500">City</label>
+                  <select
+                    required
+                    value={selectedCity}
+                    onChange={(e) => setSelectedCity(e.target.value)}
+                    className="mt-1.5 border border-borderColor rounded-lg px-3 py-2.5 text-sm w-full bg-white"
+                    disabled={loadingFilters || !selectedState || cityOptions.length === 0}
+                  >
+                    <option value="">
+                      {!selectedState
+                        ? 'Select state first'
+                        : loadingFilters
+                        ? 'Loading cities...'
+                        : cityOptions.length
+                        ? 'Select city'
+                        : 'No cities available'}
                     </option>
                     {cityOptions.map((city) => (
                       <option value={city} key={city}>
@@ -161,7 +211,7 @@ const Hero = () => {
               </div>
               <div className="rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500">Coverage</p>
-                <p className="text-sm font-semibold text-slate-800 mt-0.5">4+ Cities</p>
+                <p className="text-sm font-semibold text-slate-800 mt-0.5">State + City Filters</p>
               </div>
             </div>
           </ScrollReveal>

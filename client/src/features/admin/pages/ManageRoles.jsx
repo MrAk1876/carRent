@@ -97,6 +97,10 @@ const ManageRoles = () => {
     () => users.filter((user) => String(user.role || '').trim() !== 'User').length,
     [users],
   );
+  const existingSuperAdminId = useMemo(() => {
+    const superAdmin = users.find((user) => String(user.role || '').trim() === 'SuperAdmin');
+    return superAdmin?._id ? String(superAdmin._id) : '';
+  }, [users]);
 
   const saveRole = async (userId) => {
     const actionId = `save:${userId}`;
@@ -188,6 +192,11 @@ const ManageRoles = () => {
                       const busy = actionKey === `save:${id}`;
                       const isCurrentUser = String(currentUser?._id || '') === String(id);
                       const isSelfSuperAdmin = isCurrentUser && String(user.role || '') === 'SuperAdmin';
+                      const roleOptionsForUser = roles.filter((roleOption) => {
+                        if (roleOption !== 'SuperAdmin') return true;
+                        if (!existingSuperAdminId) return true;
+                        return existingSuperAdminId === String(id);
+                      });
 
                       return (
                         <tr key={id} className="border-t border-borderColor align-top">
@@ -216,12 +225,15 @@ const ManageRoles = () => {
                               className="w-45 border border-borderColor rounded-lg px-2.5 py-2 text-sm bg-white"
                               disabled={isSelfSuperAdmin}
                             >
-                              {roles.map((roleOption) => (
+                              {roleOptionsForUser.map((roleOption) => (
                                 <option key={roleOption} value={roleOption}>
                                   {roleOption}
                                 </option>
                               ))}
                             </select>
+                            {existingSuperAdminId && existingSuperAdminId !== String(id) ? (
+                              <p className="mt-1 text-[11px] text-gray-500">Only one SuperAdmin is allowed.</p>
+                            ) : null}
                           </td>
 
                           <td className="p-3">
