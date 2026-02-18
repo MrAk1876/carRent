@@ -294,6 +294,60 @@
   background: rgba(37, 99, 235, 0.12);
 }
 
+.theme-dark .owner-sidebar {
+  --sidebar-bg: linear-gradient(180deg, #0f172a 0%, #111d33 45%, #0f1a2d 100%);
+  --sidebar-border: #2d3c58;
+  --sidebar-surface: rgba(15, 23, 42, 0.9);
+  --sidebar-text: #e5edfb;
+  --sidebar-muted: #9ab1d6;
+  --sidebar-accent: #60a5fa;
+  --sidebar-accent-strong: #93c5fd;
+  --sidebar-accent-soft: rgba(96, 165, 250, 0.2);
+}
+
+.theme-dark .owner-sidebar__profile {
+  border-color: rgba(100, 121, 160, 0.45);
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.5);
+}
+
+.theme-dark .owner-sidebar__avatar-shell {
+  background: linear-gradient(145deg, #1d2d47, #22365d);
+  box-shadow: inset 0 0 0 1px rgba(177, 201, 240, 0.25);
+}
+
+.theme-dark .owner-sidebar__edit {
+  border-color: rgba(122, 149, 201, 0.45);
+  background: rgba(30, 41, 59, 0.94);
+}
+
+.theme-dark .owner-sidebar__edit img {
+  filter: brightness(2.1);
+}
+
+.theme-dark .owner-sidebar__group-title {
+  color: #8ea8d2;
+}
+
+.theme-dark .owner-sidebar__item:hover {
+  color: #dce9ff;
+  background: rgba(30, 41, 59, 0.7);
+}
+
+.theme-dark .owner-sidebar__icon-wrap {
+  background: rgba(30, 41, 59, 0.76);
+}
+
+.theme-dark .owner-sidebar__home-btn {
+  border-color: rgba(96, 165, 250, 0.42);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.92), rgba(22, 33, 52, 0.96));
+  color: #bfdbfe;
+}
+
+.theme-dark .owner-sidebar__home-btn:hover {
+  background: linear-gradient(180deg, rgba(37, 56, 87, 0.95), rgba(22, 36, 60, 0.98));
+  box-shadow: 0 10px 22px rgba(30, 64, 175, 0.35);
+}
+
 @keyframes owner-sidebar-reveal {
   from {
     opacity: 0;

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { assets, menuLinks } from '../assets/assets';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { isAdmin, isLoggedIn } from '../utils/auth';
+import ThemeToggle from './ThemeToggle';
 
 const desktopLinkClass = ({ isActive }) =>
   `px-3 py-2 rounded-lg text-sm leading-tight whitespace-nowrap transition-all ${
@@ -101,7 +102,7 @@ const Navbar = ({ setShowLogin }) => {
       }`}
     >
       <div className="max-w-330 mx-auto h-16 px-4 sm:px-6 md:px-8 xl:px-10 flex items-center gap-3">
-        <Link to="/" className="shrink-0">
+        <Link to="/" className="shrink-0 app-logo-shell">
           <img src={assets.logo} alt="logo" className="h-7 sm:h-8" />
         </Link>
 
@@ -137,6 +138,8 @@ const Navbar = ({ setShowLogin }) => {
         )}
 
         <div className="hidden lg:flex items-center gap-2 lg:gap-3 shrink-0">
+          <ThemeToggle />
+
           {admin && (
             <button
               onClick={goOwner}
@@ -228,6 +231,8 @@ const Navbar = ({ setShowLogin }) => {
           </nav>
 
           <div className="mt-4 pt-4 border-t border-borderColor flex flex-col gap-2">
+            <ThemeToggle className="w-full justify-between" showLabel />
+
             {admin && (
               <button
                 onClick={goOwner}

@@ -11,7 +11,9 @@ const Footer = () => {
       <div className="max-w-330 mx-auto rounded-3xl border border-borderColor bg-linear-to-b from-slate-50 to-white p-6 md:p-8 lg:p-10">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-8 pb-8 border-b border-borderColor">
           <div>
-            <img src={assets.logo} alt="logo" className="h-8 md:h-9" />
+            <span className="inline-flex app-logo-shell">
+              <img src={assets.logo} alt="logo" className="h-8 md:h-9" />
+            </span>
             <p className="max-w-80 mt-3">
               Book with confidence, negotiate fairly, and pay securely with a transparent car-rental workflow.
             </p>

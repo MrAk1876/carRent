@@ -3,6 +3,7 @@ import { assets } from '../../../assets/assets';
 import { getUser } from '../../../utils/auth';
 import { useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
+import ThemeToggle from '../../../components/ThemeToggle';
 
 const NavbarOwner = ({ onMenuClick, isSidebarOpen }) => {
   const user = getUser();
@@ -30,12 +31,13 @@ const NavbarOwner = ({ onMenuClick, isSidebarOpen }) => {
           </svg>
         </button>
 
-        <Link to="/">
+        <Link to="/" className="app-logo-shell">
           <img src={assets.logo} alt="logo" className="h-7 sm:h-8" />
         </Link>
       </div>
 
       <div className="flex items-center justify-end gap-2 sm:gap-4 min-w-0">
+        <ThemeToggle />
         <p className="hidden md:block truncate max-w-65">
           Welcome, {`${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Owner'}
         </p>

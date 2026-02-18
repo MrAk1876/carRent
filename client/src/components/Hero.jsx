@@ -21,9 +21,9 @@ const Hero = () => {
     ? cityOptionsByState[selectedState] || []
     : [];
   const fieldShellClass =
-    'group rounded-xl border border-slate-200 bg-slate-50/85 px-3.5 py-2.5 transition-all duration-200 focus-within:border-primary focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(37,99,235,0.14)]';
+    'hero-search-field group rounded-xl border border-slate-200 bg-slate-50/85 px-3.5 py-2.5 transition-all duration-200 focus-within:border-primary focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(37,99,235,0.14)]';
   const inputClass =
-    'mt-1.5 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-slate-800 outline-none ring-0 focus:ring-0';
+    'hero-search-input mt-1.5 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-slate-800 outline-none ring-0 focus:ring-0';
 
   useEffect(() => {
     let cancelled = false;
@@ -124,18 +124,18 @@ const Hero = () => {
 
             <form
               onSubmit={handleSearch}
-              className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 md:p-5 shadow-[0_16px_38px_rgba(15,23,42,0.08)]"
+              className="hero-search-card mt-8 rounded-2xl border border-slate-200 bg-white p-4 md:p-5 shadow-[0_16px_38px_rgba(15,23,42,0.08)]"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
-                <p className="text-sm font-semibold text-slate-800">Find Cars by State, City, and Date</p>
-                <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+                <p className="hero-search-title text-sm font-semibold text-slate-800">Find Cars by State, City, and Date</p>
+                <span className="hero-search-badge inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
                   Fast Smart Filters
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                 <div className={fieldShellClass}>
-                  <label className="text-[11px] uppercase tracking-[0.11em] text-slate-500">State</label>
+                  <label className="hero-search-label text-[11px] uppercase tracking-[0.11em] text-slate-500">State</label>
                   <select
                     required
                     value={selectedState}
@@ -155,7 +155,7 @@ const Hero = () => {
                 </div>
 
                 <div className={fieldShellClass}>
-                  <label className="text-[11px] uppercase tracking-[0.11em] text-slate-500">City</label>
+                  <label className="hero-search-label text-[11px] uppercase tracking-[0.11em] text-slate-500">City</label>
                   <select
                     required
                     value={selectedCity}
@@ -181,7 +181,7 @@ const Hero = () => {
                 </div>
 
                 <div className={fieldShellClass}>
-                  <label className="text-[11px] uppercase tracking-[0.11em] text-slate-500">Pickup Date</label>
+                  <label className="hero-search-label text-[11px] uppercase tracking-[0.11em] text-slate-500">Pickup Date</label>
                   <input
                     type="date"
                     min={new Date().toISOString().split('T')[0]}
@@ -193,7 +193,7 @@ const Hero = () => {
                 </div>
 
                 <div className={fieldShellClass}>
-                  <label className="text-[11px] uppercase tracking-[0.11em] text-slate-500">Return Date</label>
+                  <label className="hero-search-label text-[11px] uppercase tracking-[0.11em] text-slate-500">Return Date</label>
                   <input
                     type="date"
                     min={pickupDate || new Date().toISOString().split('T')[0]}
@@ -214,15 +214,15 @@ const Hero = () => {
             </form>
 
             <div className="mt-4 grid grid-cols-3 gap-3 max-w-xl">
-              <div className="rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
+              <div className="hero-search-meta-card rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500">Advance</p>
                 <p className="text-sm font-semibold text-slate-800 mt-0.5">20% - 30%</p>
               </div>
-              <div className="rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
+              <div className="hero-search-meta-card rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500">Negotiation</p>
                 <p className="text-sm font-semibold text-slate-800 mt-0.5">3 Rounds</p>
               </div>
-              <div className="rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
+              <div className="hero-search-meta-card rounded-xl border border-borderColor bg-white/90 px-3 py-2.5">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500">Coverage</p>
                 <p className="text-sm font-semibold text-slate-800 mt-0.5">State + City Filters</p>
               </div>
