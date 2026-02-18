@@ -172,6 +172,13 @@ export const ownerMenuLinks = [
     permission: PERMISSIONS.MANAGE_OFFERS,
   },
   {
+    name: 'Manage Subscriptions',
+    path: '/owner/manage-subscriptions',
+    icon: listIcon,
+    coloredIcon: listIconColored,
+    permission: PERMISSIONS.VIEW_FINANCIALS,
+  },
+  {
     name: 'Manage Reviews',
     path: '/owner/reviews',
     icon: star_icon,

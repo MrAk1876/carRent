@@ -59,6 +59,30 @@ export const renewSubscription = async ({
   return response?.data || {};
 };
 
+export const getAdminSubscriptionOverview = async (params = {}) => {
+  const response = await API.get('/subscriptions/admin/overview', { params });
+  const payload = response?.data || {};
+  return {
+    summary: payload?.summary || {},
+    topPlans: Array.isArray(payload?.topPlans) ? payload.topPlans : [],
+    subscriptions: Array.isArray(payload?.subscriptions) ? payload.subscriptions : [],
+    plans: Array.isArray(payload?.plans) ? payload.plans : [],
+    branchOptions: Array.isArray(payload?.branchOptions) ? payload.branchOptions : [],
+    canManagePlans: Boolean(payload?.canManagePlans),
+    pagination: payload?.pagination || { page: 1, pageSize: 20, totalItems: 0, totalPages: 1 },
+  };
+};
+
+export const createAdminSubscriptionPlan = async (payload = {}) => {
+  const response = await API.post('/subscriptions/admin/plans', payload);
+  return response?.data || {};
+};
+
+export const updateAdminSubscriptionPlan = async (planId, payload = {}) => {
+  const response = await API.put(`/subscriptions/admin/plans/${planId}`, payload);
+  return response?.data || {};
+};
+
 export const downloadSubscriptionInvoicePdf = async (subscriptionId) => {
   const fallbackName = `subscription-invoice-${String(subscriptionId || 'subscription')}.pdf`;
   const response = await API.get(`/subscriptions/my/${subscriptionId}/invoice`, {

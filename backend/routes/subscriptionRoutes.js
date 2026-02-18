@@ -3,6 +3,7 @@ const express = require('express');
 const {
   getPlans,
   getAdminPlans,
+  getAdminSubscriptionOverview,
   createPlan,
   updatePlan,
   getMySubscription,
@@ -11,13 +12,19 @@ const {
   downloadMySubscriptionInvoice,
 } = require('../controllers/subscriptionController');
 const { protect, userOnly } = require('../middleware/authMiddleware');
-const { requirePermission } = require('../middleware/rbacMiddleware');
+const { requirePermission, requireAnyPermission } = require('../middleware/rbacMiddleware');
 const { PERMISSIONS } = require('../utils/rbac');
 
 const router = express.Router();
 
 router.get('/plans', getPlans);
 
+router.get(
+  '/admin/overview',
+  protect,
+  requireAnyPermission(PERMISSIONS.VIEW_FINANCIALS, PERMISSIONS.MANAGE_ROLES),
+  getAdminSubscriptionOverview,
+);
 router.get('/admin/plans', protect, requirePermission(PERMISSIONS.MANAGE_ROLES), getAdminPlans);
 router.post('/admin/plans', protect, requirePermission(PERMISSIONS.MANAGE_ROLES), createPlan);
 router.put('/admin/plans/:id', protect, requirePermission(PERMISSIONS.MANAGE_ROLES), updatePlan);

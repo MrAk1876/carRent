@@ -12,6 +12,8 @@ const SECTION_SCROLL_ROUTES = new Set([
   '/owner/bookings',
   '/owner/rental-tracking',
   '/owner/analytics',
+  '/owner/manage-subscriptions',
+  '/owner/subscription-plans',
   '/owner/fleet-overview',
   '/owner/drivers',
   '/owner/users',

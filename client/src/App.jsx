@@ -37,6 +37,7 @@ const FleetOverview = lazy(() => import('./features/admin/pages/FleetOverview'))
 const ManageDrivers = lazy(() => import('./features/admin/pages/ManageDrivers'));
 const AnalyticsDashboard = lazy(() => import('./features/admin/pages/AnalyticsDashboard'));
 const PlatformOverview = lazy(() => import('./features/admin/pages/PlatformOverview'));
+const ManageSubscriptions = lazy(() => import('./features/admin/pages/ManageSubscriptions'));
 
 const routeTransition = {
   initial: { opacity: 0, y: 14, scale: 0.995 },
@@ -76,6 +77,7 @@ const App = () => {
   const canViewBookings = can(PERMISSIONS.VIEW_ALL_BOOKINGS) || can(PERMISSIONS.MANAGE_BOOKINGS);
   const canManageDrivers = can(PERMISSIONS.MANAGE_DRIVERS);
   const canViewPlatform = platformSuperAdmin;
+  const canManageSubscriptions = can(PERMISSIONS.VIEW_FINANCIALS) || can(PERMISSIONS.MANAGE_ROLES);
   const canViewFleetOverview =
     can(PERMISSIONS.MANAGE_FLEET) || can(PERMISSIONS.MANAGE_MAINTENANCE) || can(PERMISSIONS.VIEW_ANALYTICS);
 
@@ -201,6 +203,11 @@ const App = () => {
                   element={can(PERMISSIONS.VIEW_ANALYTICS) ? <AnalyticsDashboard /> : <Navigate to="/owner/profile" replace />}
                 />
                 <Route
+                  path="manage-subscriptions"
+                  element={canManageSubscriptions ? <ManageSubscriptions /> : <Navigate to="/owner/profile" replace />}
+                />
+                <Route path="subscription-plans" element={<SubscriptionPlans />} />
+                <Route
                   path="platform-overview"
                   element={canViewPlatform ? <PlatformOverview /> : <Navigate to="/owner/profile" replace />}
                 />
@@ -236,12 +243,20 @@ const App = () => {
                 element={staff ? <Navigate to="/owner/analytics" replace /> : <Navigate to="/" replace />}
               />
               <Route
+                path="/admin/subscription-plans"
+                element={staff ? <Navigate to="/owner/subscription-plans" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
                 path="/admin/drivers"
                 element={staff ? <Navigate to="/owner/drivers" replace /> : <Navigate to="/" replace />}
               />
               <Route
                 path="/admin/manage-roles"
                 element={staff ? <Navigate to="/owner/manage-roles" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="/admin/manage-subscriptions"
+                element={staff ? <Navigate to="/owner/manage-subscriptions" replace /> : <Navigate to="/" replace />}
               />
               <Route
                 path="/admin/branches"

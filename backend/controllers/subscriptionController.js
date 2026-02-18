@@ -6,6 +6,7 @@ const Branch = require('../models/Branch');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const UserSubscription = require('../models/UserSubscription');
 const { ROLE, normalizeRole, isStaffRole } = require('../utils/rbac');
+const { getScopedBranchIds, assertBranchInScope } = require('../services/adminScopeService');
 const {
   getAvailableSubscriptionPlans,
   getUserActiveSubscription,
@@ -78,6 +79,57 @@ const ensureSuperAdmin = (user) => {
     error.status = 403;
     throw error;
   }
+};
+
+const toPositiveInt = (value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const rounded = Math.trunc(parsed);
+  if (rounded < min) return min;
+  if (rounded > max) return max;
+  return rounded;
+};
+
+const toObjectIdString = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    return mongoose.Types.ObjectId.isValid(value) ? String(value) : '';
+  }
+  if (value instanceof mongoose.Types.ObjectId) {
+    return String(value);
+  }
+  if (typeof value === 'object' && value?._id) {
+    return mongoose.Types.ObjectId.isValid(String(value._id)) ? String(value._id) : '';
+  }
+  return '';
+};
+
+const buildScopedBranchFilter = (selectedBranchId, scopedBranchIds) => {
+  if (selectedBranchId) return { branchId: new mongoose.Types.ObjectId(selectedBranchId) };
+  if (Array.isArray(scopedBranchIds)) {
+    if (scopedBranchIds.length === 0) return { branchId: { $in: [] } };
+    return { branchId: { $in: scopedBranchIds.map((id) => new mongoose.Types.ObjectId(id)) } };
+  }
+  return {};
+};
+
+const buildScopedPlanQuery = (selectedBranchId, scopedBranchIds) => {
+  if (selectedBranchId) {
+    return {
+      $or: [{ branchId: null }, { branchId: new mongoose.Types.ObjectId(selectedBranchId) }],
+    };
+  }
+
+  if (Array.isArray(scopedBranchIds)) {
+    if (scopedBranchIds.length === 0) {
+      return { branchId: null };
+    }
+    return {
+      $or: [{ branchId: null }, { branchId: { $in: scopedBranchIds } }],
+    };
+  }
+
+  return {};
 };
 
 const resolveBranchReference = async (rawBranchId) => {
@@ -225,6 +277,153 @@ exports.updatePlan = async (req, res) => {
       : status >= 500
       ? 'Failed to update subscription plan'
       : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.getAdminSubscriptionOverview = async (req, res) => {
+  try {
+    const scopedBranchIds = getScopedBranchIds(req.user);
+    const requestedBranchId = String(req.query?.branchId || '').trim();
+    const statusFilter = String(req.query?.status || '').trim();
+    const page = toPositiveInt(req.query?.page, 1, 1, 100000);
+    const pageSize = toPositiveInt(req.query?.pageSize, 20, 1, 100);
+
+    if (requestedBranchId && !mongoose.Types.ObjectId.isValid(requestedBranchId)) {
+      return res.status(422).json({ message: 'Invalid branchId' });
+    }
+
+    if (requestedBranchId && Array.isArray(scopedBranchIds)) {
+      assertBranchInScope(req.user, requestedBranchId, 'Not allowed for this branch scope');
+    }
+
+    const allowedStatuses = new Set(UserSubscription.SUBSCRIPTION_STATUSES || []);
+    const normalizedStatus = statusFilter && statusFilter !== 'all' ? statusFilter : '';
+    if (normalizedStatus && !allowedStatuses.has(normalizedStatus)) {
+      return res.status(422).json({ message: 'Invalid subscription status filter' });
+    }
+
+    const selectedBranchId = requestedBranchId || '';
+    const subscriptionScopeFilter = buildScopedBranchFilter(selectedBranchId, scopedBranchIds);
+    const subscriptionQuery = {
+      ...subscriptionScopeFilter,
+      ...(normalizedStatus ? { subscriptionStatus: normalizedStatus } : {}),
+    };
+
+    const [totalItems, rows] = await Promise.all([
+      UserSubscription.countDocuments(subscriptionQuery),
+      UserSubscription.find(subscriptionQuery)
+        .populate('userId', 'firstName lastName email')
+        .populate('planId', 'planName durationType durationInDays price includedRentalHours branchId')
+        .populate('branchId', 'branchName branchCode city state')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize),
+    ]);
+
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const summaryFilter = { ...subscriptionScopeFilter };
+    const [activeCount, paidCount, revenueRows, monthRevenueRows] = await Promise.all([
+      UserSubscription.countDocuments({ ...summaryFilter, subscriptionStatus: 'Active' }),
+      UserSubscription.countDocuments({ ...summaryFilter, paymentStatus: 'Paid' }),
+      UserSubscription.aggregate([
+        { $match: { ...summaryFilter, paymentStatus: 'Paid' } },
+        { $group: { _id: null, totalRevenue: { $sum: '$amountPaid' } } },
+      ]),
+      UserSubscription.aggregate([
+        { $match: { ...summaryFilter, paymentStatus: 'Paid', createdAt: { $gte: startOfMonth } } },
+        { $group: { _id: null, monthlyRevenue: { $sum: '$amountPaid' } } },
+      ]),
+    ]);
+
+    const totalRevenue = Number(revenueRows?.[0]?.totalRevenue || 0);
+    const monthlyRevenue = Number(monthRevenueRows?.[0]?.monthlyRevenue || 0);
+    const avgRevenuePerSubscription = paidCount > 0 ? Number((totalRevenue / paidCount).toFixed(2)) : 0;
+
+    const topPlanRows = await UserSubscription.aggregate([
+      { $match: { ...summaryFilter, paymentStatus: 'Paid' } },
+      {
+        $group: {
+          _id: '$planId',
+          revenue: { $sum: '$amountPaid' },
+          purchases: { $sum: 1 },
+        },
+      },
+      { $sort: { revenue: -1, purchases: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: 'subscriptionplans',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'plan',
+        },
+      },
+      { $unwind: { path: '$plan', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          planId: '$_id',
+          planName: { $ifNull: ['$plan.planName', 'Unknown Plan'] },
+          revenue: 1,
+          purchases: 1,
+        },
+      },
+    ]);
+
+    const canManagePlans = normalizeRole(req.user?.role, ROLE.USER) === ROLE.SUPER_ADMIN;
+
+    const branchQuery = Array.isArray(scopedBranchIds)
+      ? (scopedBranchIds.length > 0 ? { _id: { $in: scopedBranchIds } } : { _id: { $in: [] } })
+      : {};
+    const [branchOptions, planRows] = await Promise.all([
+      Branch.find(branchQuery).select('_id branchName branchCode city state isActive').sort({ branchName: 1 }),
+      SubscriptionPlan.find(buildScopedPlanQuery(selectedBranchId, scopedBranchIds))
+        .populate('branchId', 'branchName branchCode city state isActive')
+        .sort({ createdAt: -1 }),
+    ]);
+
+    return res.json({
+      summary: {
+        totalSubscriptions: Number(totalItems || 0),
+        activeSubscriptions: Number(activeCount || 0),
+        paidSubscriptions: Number(paidCount || 0),
+        totalRevenue,
+        monthlyRevenue,
+        avgRevenuePerSubscription,
+      },
+      topPlans: Array.isArray(topPlanRows)
+        ? topPlanRows.map((row) => ({
+            planId: toObjectIdString(row?.planId),
+            planName: String(row?.planName || 'Unknown Plan'),
+            purchases: Number(row?.purchases || 0),
+            revenue: Number(row?.revenue || 0),
+          }))
+        : [],
+      subscriptions: rows.map(serializeSubscription),
+      plans: planRows.map(serializePlan),
+      branchOptions: branchOptions.map((branch) => ({
+        _id: String(branch?._id || ''),
+        branchName: String(branch?.branchName || ''),
+        branchCode: String(branch?.branchCode || ''),
+        city: String(branch?.city || ''),
+        state: String(branch?.state || ''),
+        isActive: Boolean(branch?.isActive),
+      })),
+      canManagePlans,
+      pagination: {
+        page,
+        pageSize,
+        totalItems: Number(totalItems || 0),
+        totalPages: totalItems > 0 ? Math.ceil(totalItems / pageSize) : 1,
+      },
+    });
+  } catch (error) {
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to load admin subscription overview' : error.message;
     return res.status(status).json({ message });
   }
 };
