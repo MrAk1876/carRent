@@ -37,6 +37,15 @@ const ALLOWED_CAR_CATEGORIES = [
   'Adventure SUV',
   'Luxury Adventure SUV',
 ];
+const CAR_UPLOAD_TIMEOUT_MS = 120000;
+const MAX_CAR_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/pjpeg',
+  'image/webp',
+]);
 
 const normalizeStringList = (values = []) =>
   [...new Set((values || []).map((item) => String(item || '').trim()).filter(Boolean))].sort((a, b) =>
@@ -189,7 +198,6 @@ const AddCar = () => {
 
     try {
       const formData = new FormData();
-      CAR_FORM_FIELDS.forEach((key) => formData.append(key, car[key]));
 
       const cleanFeatures = normalizeFeatures(features);
       if (cleanFeatures.length < 5) {
@@ -209,16 +217,28 @@ const AddCar = () => {
         setLoading(false);
         return;
       }
-      if (locationOptions.length > 0 && !locationOptions.includes(car.location)) {
+
+      const normalizedLocation = String(car.location || '').trim();
+      const branchCities = selectedBranch ? normalizeBranchCities(selectedBranch) : [];
+      const matchedBranchCity =
+        branchCities.length > 0
+          ? branchCities.find((city) => city.toLowerCase() === normalizedLocation.toLowerCase())
+          : normalizedLocation;
+
+      if (branchCities.length > 0 && !matchedBranchCity) {
         setErrorMsg('Please select a city that belongs to the selected branch');
         setLoading(false);
         return;
       }
+
       if (!ALLOWED_CAR_CATEGORIES.includes(car.category)) {
         setErrorMsg('Please select a valid category from the list');
         setLoading(false);
         return;
       }
+
+      CAR_FORM_FIELDS.forEach((key) => formData.append(key, car[key]));
+      formData.set('location', matchedBranchCity || normalizedLocation);
 
       formData.append('features', JSON.stringify(cleanFeatures));
 
@@ -239,10 +259,12 @@ const AddCar = () => {
         formData.delete('branchId');
         await API.put(`/admin/cars/${editId}`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: CAR_UPLOAD_TIMEOUT_MS,
         });
       } else {
         await API.post('/admin/cars', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: CAR_UPLOAD_TIMEOUT_MS,
         });
       }
 
@@ -377,19 +399,31 @@ const AddCar = () => {
               </div>
             </div>
 
-            <input
-              type="file"
-              id="car-img"
-              accept="image/*"
-              hidden
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                if (rawImage?.startsWith('blob:')) {
-                  URL.revokeObjectURL(rawImage);
-                }
-                setRawImage(URL.createObjectURL(file));
-                setShowCrop(true);
+              <input
+                type="file"
+                id="car-img"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const normalizedMime = String(file.type || '').toLowerCase();
+                  if (normalizedMime && !ALLOWED_IMAGE_MIME_TYPES.has(normalizedMime)) {
+                    setErrorMsg('Only PNG, JPG, JPEG, and WEBP images are allowed.');
+                    e.target.value = '';
+                    return;
+                  }
+                  if (file.size > MAX_CAR_IMAGE_SIZE_BYTES) {
+                    setErrorMsg('Image size must be 5MB or less.');
+                    e.target.value = '';
+                    return;
+                  }
+                  setErrorMsg('');
+                  if (rawImage?.startsWith('blob:')) {
+                    URL.revokeObjectURL(rawImage);
+                  }
+                  setRawImage(URL.createObjectURL(file));
+                  setShowCrop(true);
               }}
             />
           </div>
@@ -508,6 +542,7 @@ const AddCar = () => {
                   onChange={(e) => setCar({ ...car, transmission: e.target.value })}
                   value={car.transmission}
                   className={inputClass}
+                  required
                 >
                   <option value="">Select transmission</option>
                   <option value="Automatic">Automatic</option>
@@ -521,6 +556,7 @@ const AddCar = () => {
                   onChange={(e) => setCar({ ...car, fuel_type: e.target.value })}
                   value={car.fuel_type}
                   className={inputClass}
+                  required
                 >
                   <option value="">Select fuel type</option>
                   <option value="Petrol">Petrol</option>
@@ -541,30 +577,25 @@ const AddCar = () => {
               </div>
               <div>
                 <label className={labelClass}>Location</label>
-                <select
+                <input
+                  type="text"
+                  list="branch-city-options"
+                  placeholder={!car.branchId ? 'Select branch first' : 'Select or type city'}
                   onChange={(e) => setCar({ ...car, location: e.target.value })}
                   value={car.location}
                   className={inputClass}
                   required
-                  disabled={!car.branchId || locationOptions.length === 0}
-                >
-                  <option value="">
-                    {!car.branchId
-                      ? 'Select branch first'
-                      : locationOptions.length
-                      ? 'Select city'
-                      : 'No city mapped for this branch'}
-                  </option>
+                  disabled={!car.branchId}
+                />
+                <datalist id="branch-city-options">
                   {locationOptions.map((city) => (
-                    <option value={city} key={city}>
-                      {city}
-                    </option>
+                    <option value={city} key={city} />
                   ))}
-                </select>
+                </datalist>
                 <p className="mt-1 text-[11px] text-gray-500">
                   {locationOptions.length
-                    ? 'City options are loaded from selected branch.'
-                    : 'Branch has no configured city list yet.'}
+                    ? 'City suggestions are loaded from selected branch.'
+                    : 'No city suggestions found for this branch. You can type manually.'}
                 </p>
               </div>
             </div>

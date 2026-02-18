@@ -1,9 +1,11 @@
 const multer = require("multer");
 
-const allowedExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const allowedExtensions = new Set([".png", ".jpg", ".jpeg", ".jfif", ".webp"]);
 const allowedMimeTypes = new Set([
   "image/png",
   "image/jpeg",
+  "image/jpg",
+  "image/pjpeg",
   "image/webp",
 ]);
 
@@ -17,10 +19,14 @@ const upload = multer({
   },
   fileFilter(req, file, cb) {
     const ext = path.extname(file.originalname).toLowerCase();
-    const isAllowed = allowedExtensions.has(ext) && allowedMimeTypes.has(file.mimetype);
+    const mimeType = String(file.mimetype || "").toLowerCase();
+    const isAllowed = allowedExtensions.has(ext) || allowedMimeTypes.has(mimeType);
 
     if (!isAllowed) {
-      return cb(new Error("Only PNG, JPG, JPEG, and WEBP images are allowed"));
+      const error = new Error("Only PNG, JPG, JPEG, JFIF, and WEBP images are allowed");
+      error.status = 422;
+      error.statusCode = 422;
+      return cb(error);
     }
 
     cb(null, true);

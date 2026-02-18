@@ -121,6 +121,13 @@ export const ownerMenuLinks = [
     permission: PERMISSIONS.VIEW_ANALYTICS,
   },
   {
+    name: 'Subscription Plans',
+    path: '/owner/subscription-plans',
+    icon: listIcon,
+    coloredIcon: listIconColored,
+    permission: null,
+  },
+  {
     name: 'Platform',
     path: '/owner/platform-overview',
     icon: dashboardIcon,

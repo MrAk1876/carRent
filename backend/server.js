@@ -43,6 +43,13 @@ app.use((err, req, res, next) => {
     return next(err);
   }
 
+  if (String(err?.name || '') === 'MulterError') {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ message: 'Image size must be 5MB or less' });
+    }
+    return res.status(422).json({ message: err?.message || 'Invalid image upload request' });
+  }
+
   const statusCode =
     Number.isInteger(err?.status) ? err.status : Number.isInteger(err?.statusCode) ? err.statusCode : 500;
   const message = statusCode >= 500 ? 'Internal server error' : err?.message || 'Request failed';

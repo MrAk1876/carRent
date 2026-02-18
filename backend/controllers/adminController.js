@@ -348,7 +348,7 @@ const getBranchServiceCities = (branch) =>
     ),
   ];
 
-const assertLocationAllowedForBranch = (branch, locationValue) => {
+const normalizeLocationForBranch = (branch, locationValue) => {
   const location = String(locationValue || '').trim();
   if (!location) {
     const error = new Error('Location is required');
@@ -357,13 +357,17 @@ const assertLocationAllowedForBranch = (branch, locationValue) => {
   }
 
   const allowedCities = getBranchServiceCities(branch);
-  if (allowedCities.length === 0) return;
+  if (allowedCities.length === 0) return location;
 
-  if (!allowedCities.includes(location)) {
+  const normalizedInput = location.toLowerCase();
+  const matchedCity = allowedCities.find((city) => city.toLowerCase() === normalizedInput);
+  if (!matchedCity) {
     const error = new Error(`Location must belong to selected branch cities: ${allowedCities.join(', ')}`);
     error.status = 422;
     throw error;
   }
+
+  return matchedCity;
 };
 
 const formatPricingHistoryEntry = (entry) => ({
@@ -1531,7 +1535,7 @@ exports.addCar = async (req, res) => {
     const data = pickCarPayload(req.body);
     const targetBranch = await resolveBranchForCarWrite(req.user, req.body?.branchId);
     data.branchId = targetBranch?._id || null;
-    assertLocationAllowedForBranch(targetBranch, data.location);
+    data.location = normalizeLocationForBranch(targetBranch, data.location);
     await assertTenantEntityLimit(req, {
       model: Car,
       limitField: 'maxVehicles',
@@ -1631,7 +1635,7 @@ exports.updateCar = async (req, res) => {
     const { branch: existingBranch } = await ensureCarBranch(existingCar);
 
     if (Object.prototype.hasOwnProperty.call(data, 'location')) {
-      assertLocationAllowedForBranch(existingBranch, data.location);
+      data.location = normalizeLocationForBranch(existingBranch, data.location);
     }
 
     if (req.file) {
