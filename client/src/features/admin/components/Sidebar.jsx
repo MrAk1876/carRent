@@ -3,6 +3,7 @@ import { assets, ownerMenuLinks } from '../../../assets/assets';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { getUser, hasPermission } from '../../../utils/auth';
 import { normalizeRole } from '../../../utils/rbac';
+import { resolveImageUrl } from '../../../utils/image';
 import './Sidebar.css';
 
 const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
@@ -11,6 +12,7 @@ const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
   const navigate = useNavigate();
 
   const fullName = `${admin?.firstName || ''} ${admin?.lastName || ''}`.trim() || 'Admin Control';
+  const resolvedAdminImage = resolveImageUrl(admin?.image);
   const initials = fullName
     .split(' ')
     .filter(Boolean)
@@ -47,8 +49,8 @@ const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
 
         <div className="owner-sidebar__profile">
           <div className="owner-sidebar__avatar-shell">
-            {admin?.image ? (
-              <img src={admin.image} alt="admin avatar" className="owner-sidebar__avatar-image" />
+            {resolvedAdminImage ? (
+              <img src={resolvedAdminImage} alt="admin avatar" className="owner-sidebar__avatar-image" />
             ) : (
               <span className="owner-sidebar__avatar-fallback">{initials || 'AD'}</span>
             )}
