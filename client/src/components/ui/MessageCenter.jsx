@@ -3,24 +3,38 @@ import { subscribeMessages } from '../../utils/messageBus';
 
 const toneByType = {
   success: {
-    card: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-    badge: 'bg-emerald-600',
     label: 'Success',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.9" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 10.2l3.1 3.1L15 6.7" />
+      </svg>
+    ),
   },
   error: {
-    card: 'border-red-200 bg-red-50 text-red-900',
-    badge: 'bg-red-600',
     label: 'Error',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.9" className="h-4 w-4">
+        <path strokeLinecap="round" d="M6.2 6.2l7.6 7.6M13.8 6.2l-7.6 7.6" />
+      </svg>
+    ),
   },
   warning: {
-    card: 'border-amber-200 bg-amber-50 text-amber-900',
-    badge: 'bg-amber-600',
     label: 'Warning',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10 3.5l7 12.2H3l7-12.2z" />
+        <path strokeLinecap="round" d="M10 7.8v4.2m0 2.2h.01" />
+      </svg>
+    ),
   },
   info: {
-    card: 'border-blue-200 bg-blue-50 text-blue-900',
-    badge: 'bg-blue-600',
     label: 'Info',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <circle cx="10" cy="10" r="6.6" />
+        <path strokeLinecap="round" d="M10 9.1v4m0-6.2h.01" />
+      </svg>
+    ),
   },
 };
 
@@ -69,29 +83,40 @@ const MessageCenter = () => {
   if (messages.length === 0) return null;
 
   return (
-    <div className="fixed right-3 top-3 z-120 flex w-[min(92vw,390px)] flex-col gap-2">
+    <div className="message-center fixed bottom-3 right-3 z-[140] flex w-[min(92vw,390px)] flex-col gap-2 pointer-events-none sm:bottom-5 sm:right-5">
       {messages.map((message) => {
-        const tone = toneByType[message.type] || toneByType.info;
+        const toneType = toneByType[message.type] ? message.type : 'info';
+        const tone = toneByType[toneType];
         return (
           <div
             key={message.id}
-            className={`message-toast-enter pointer-events-auto rounded-xl border px-3 py-2 shadow-[0_14px_30px_rgba(15,23,42,0.16)] backdrop-blur ${tone.card}`}
+            className={`message-toast message-toast-enter message-toast--${toneType} pointer-events-auto relative overflow-hidden rounded-2xl border px-3.5 py-3 backdrop-blur`}
+            role="status"
+            aria-live="polite"
           >
-            <div className="flex items-start gap-2">
-              <span className={`mt-1 h-2.5 w-2.5 rounded-full ${tone.badge}`} />
+            <div className="flex items-start gap-2.5">
+              <span className="message-toast__icon mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full">
+                {tone.icon}
+              </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-wide opacity-75">{tone.label}</p>
-                <p className="text-sm leading-snug wrap-break-word">{message.message}</p>
+                <p className="message-toast__title text-[11px] font-semibold uppercase tracking-wide">{tone.label}</p>
+                <p className="message-toast__text text-sm leading-snug break-words">{message.message}</p>
               </div>
               <button
                 type="button"
                 onClick={() => removeMessage(message.id)}
-                className="rounded-md px-1 text-base leading-none opacity-55 hover:opacity-100"
+                className="message-toast__close -mt-0.5 rounded-md px-1 text-base leading-none opacity-60 hover:opacity-100"
                 aria-label="Dismiss message"
               >
                 x
               </button>
             </div>
+            {message.duration > 0 ? (
+              <span
+                className="message-toast__progress pointer-events-none absolute bottom-0 left-0 h-[3px] w-full origin-left"
+                style={{ animationDuration: `${Math.max(Number(message.duration) || 0, 1)}ms` }}
+              />
+            ) : null}
           </div>
         );
       })}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { assets } from '../../../assets/assets';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
+import useNotify from '../../../hooks/useNotify';
 
 const resolveFleetStatus = (car) => {
   const normalized = String(car?.fleetStatus || '').trim();
@@ -19,6 +20,7 @@ const getFleetStatusBadgeClass = (fleetStatus) => {
 };
 
 const ManageCars = () => {
+  const notify = useNotify();
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const navigate = useNavigate();
   const [cars, setCars] = useState([]);
@@ -35,11 +37,13 @@ const ManageCars = () => {
   const fetchOwnerCars = async () => {
     try {
       setLoading(true);
-      const res = await API.get('/admin/cars');
+      const res = await API.get('/admin/cars', { showErrorToast: false });
       setCars(Array.isArray(res.data) ? res.data : []);
       setErrorMsg('');
     } catch (error) {
-      setErrorMsg(getErrorMessage(error, 'Failed to load cars'));
+      const message = getErrorMessage(error, 'Failed to load cars');
+      setErrorMsg(message);
+      notify.error(message);
     } finally {
       setLoading(false);
     }
@@ -48,10 +52,13 @@ const ManageCars = () => {
   const toggleCar = async id => {
     try {
       setActionId(id);
-      await API.put(`/admin/cars/toggle/${id}`);
-      fetchOwnerCars();
+      await API.put(`/admin/cars/toggle/${id}`, {}, { showErrorToast: false });
+      await fetchOwnerCars();
+      notify.success('Car visibility updated');
     } catch (error) {
-      setErrorMsg(getErrorMessage(error, 'Failed to update car'));
+      const message = getErrorMessage(error, 'Failed to update car');
+      setErrorMsg(message);
+      notify.error(message);
     } finally {
       setActionId('');
     }
@@ -62,10 +69,13 @@ const ManageCars = () => {
 
     try {
       setActionId(id);
-      await API.delete(`/admin/cars/${id}`);
-      fetchOwnerCars();
+      await API.delete(`/admin/cars/${id}`, { showErrorToast: false });
+      await fetchOwnerCars();
+      notify.success('Car deleted successfully');
     } catch (error) {
-      setErrorMsg(getErrorMessage(error, 'Delete failed'));
+      const message = getErrorMessage(error, 'Delete failed');
+      setErrorMsg(message);
+      notify.error(message);
     } finally {
       setActionId('');
     }

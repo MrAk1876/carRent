@@ -1,8 +1,10 @@
 import React from 'react';
 import API, { getErrorMessage } from '../api';
 import { assets } from '../assets/assets';
+import useNotify from '../hooks/useNotify';
 
 const Login = ({ setShowLogin }) => {
+  const notify = useNotify();
   const [state, setState] = React.useState('login');
   const [firstName, setFirstName] = React.useState('');
   const [lastName, setLastName] = React.useState('');
@@ -29,6 +31,7 @@ const Login = ({ setShowLogin }) => {
 
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
+        notify.success('Logged in successfully');
 
         setShowLogin(false);
 
@@ -45,6 +48,7 @@ const Login = ({ setShowLogin }) => {
 
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
+        notify.success('Registration successful');
 
         if (res.data.user.isProfileComplete === false) {
           window.location.href = '/complete-profile';
@@ -180,10 +184,14 @@ const Login = ({ setShowLogin }) => {
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 opacity-80 hover:opacity-100"
+                  className="password-toggle-btn absolute right-2.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md opacity-80 hover:opacity-100"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  <img src={showPassword ? assets.eye_icon : assets.eye_close_icon} alt="" className="h-4 w-4" />
+                  <img
+                    src={showPassword ? assets.eye_icon : assets.eye_close_icon}
+                    alt=""
+                    className="password-toggle-icon h-4 w-4"
+                  />
                 </button>
               </div>
               {isRegister ? (

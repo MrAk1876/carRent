@@ -253,12 +253,18 @@ const AdminProfile = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
-              <img
-                src={showPass ? assets.eye_icon : assets.eye_close_icon}
-                alt="toggle password"
-                className="w-5 h-5 absolute right-3 top-3 cursor-pointer opacity-80"
+              <button
+                type="button"
                 onClick={() => setShowPass((prev) => !prev)}
-              />
+                aria-label={showPass ? 'Hide password' : 'Show password'}
+                className="password-toggle-btn absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md opacity-80 hover:opacity-100"
+              >
+                <img
+                  src={showPass ? assets.eye_icon : assets.eye_close_icon}
+                  alt=""
+                  className="password-toggle-icon h-5 w-5"
+                />
+              </button>
             </div>
 
             <button

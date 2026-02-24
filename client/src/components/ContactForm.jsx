@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { getErrorMessage } from '../api';
 import { sendContactMessage } from '../services/contactService';
 import ScrollReveal from './ui/ScrollReveal';
 import InlineSpinner from './ui/InlineSpinner';
-import ToastAlert from './ui/ToastAlert';
+import useNotify from '../hooks/useNotify';
 
 const initialForm = {
   name: '',
@@ -13,11 +13,10 @@ const initialForm = {
 };
 
 const ContactForm = () => {
+  const notify = useNotify();
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [toast, setToast] = useState({ show: false, type: 'success', message: '' });
-  const toastTimerRef = useRef(null);
 
   const validationError = useMemo(() => {
     if (!form.name.trim() || form.name.trim().length < 2) return 'Name should be at least 2 characters.';
@@ -27,25 +26,11 @@ const ContactForm = () => {
     return '';
   }, [form]);
 
-  const showToast = (type, message) => {
-    setToast({ show: true, type, message });
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => {
-      setToast((prev) => ({ ...prev, show: false }));
-    }, 2600);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    };
-  }, []);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (validationError) {
       setErrorMsg(validationError);
-      showToast('warning', validationError);
+      notify.warning(validationError);
       return;
     }
 
@@ -61,11 +46,11 @@ const ContactForm = () => {
       });
 
       setForm(initialForm);
-      showToast('success', 'Message sent successfully. We will contact you shortly.');
+      notify.success('Message sent successfully. We will contact you shortly.');
     } catch (error) {
       const message = getErrorMessage(error, 'Failed to submit the form. Please try again.');
       setErrorMsg(message);
-      showToast('error', message);
+      notify.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -73,8 +58,6 @@ const ContactForm = () => {
 
   return (
     <ScrollReveal id="contact" className="px-4 md:px-8 xl:px-10 pt-2 pb-16" direction="up" delay={60}>
-      <ToastAlert show={toast.show} type={toast.type} message={toast.message} />
-
       <div className="max-w-245 mx-auto rounded-3xl border border-borderColor bg-white p-6 md:p-9 shadow-sm">
         <h3 className="text-2xl md:text-3xl font-semibold text-slate-900">Contact Us</h3>
         <p className="text-sm md:text-base text-slate-600 mt-2">

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Title from '../components/Title';
 import API, { getErrorMessage } from '../../../api';
 import { assets } from '../../../assets/assets';
 import ImageCropperModal from '../../../components/ImageCropperModal';
+import useNotify from '../../../hooks/useNotify';
 
 const normalizeFeatures = (arr) => {
   const result = [];
@@ -136,6 +137,8 @@ const mapCarToForm = (car) => {
 };
 
 const AddCar = () => {
+  const notify = useNotify();
+  const navigate = useNavigate();
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
@@ -191,6 +194,13 @@ const AddCar = () => {
     setShowCrop(false);
   };
 
+  const reportSubmitError = (message) => {
+    const safeMessage = String(message || '').trim();
+    if (!safeMessage) return;
+    setErrorMsg(safeMessage);
+    notify.error(safeMessage);
+  };
+
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -201,19 +211,19 @@ const AddCar = () => {
 
       const cleanFeatures = normalizeFeatures(features);
       if (cleanFeatures.length < 5) {
-        setErrorMsg('Please select at least 5 features');
+        reportSubmitError('Please select at least 5 features');
         setLoading(false);
         return;
       }
 
       if (!String(car.branchId || '').trim()) {
-        setErrorMsg('Please select a branch');
+        reportSubmitError('Please select a branch');
         setLoading(false);
         return;
       }
 
       if (!String(car.location || '').trim()) {
-        setErrorMsg('Please provide a valid location');
+        reportSubmitError('Please provide a valid location');
         setLoading(false);
         return;
       }
@@ -226,13 +236,13 @@ const AddCar = () => {
           : normalizedLocation;
 
       if (branchCities.length > 0 && !matchedBranchCity) {
-        setErrorMsg('Please select a city that belongs to the selected branch');
+        reportSubmitError('Please select a city that belongs to the selected branch');
         setLoading(false);
         return;
       }
 
       if (!ALLOWED_CAR_CATEGORIES.includes(car.category)) {
-        setErrorMsg('Please select a valid category from the list');
+        reportSubmitError('Please select a valid category from the list');
         setLoading(false);
         return;
       }
@@ -243,7 +253,7 @@ const AddCar = () => {
       formData.append('features', JSON.stringify(cleanFeatures));
 
       if (!editId && !image) {
-        setErrorMsg('Please upload car image');
+        reportSubmitError('Please upload car image');
         setLoading(false);
         return;
       }
@@ -254,23 +264,30 @@ const AddCar = () => {
 
       if (editId) {
         if (originalBranchId && car.branchId && originalBranchId !== car.branchId) {
-          await API.put(`/admin/cars/${editId}/transfer-branch`, { branchId: car.branchId });
+          await API.put(
+            `/admin/cars/${editId}/transfer-branch`,
+            { branchId: car.branchId },
+            { showErrorToast: false },
+          );
         }
         formData.delete('branchId');
         await API.put(`/admin/cars/${editId}`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
           timeout: CAR_UPLOAD_TIMEOUT_MS,
+          showErrorToast: false,
         });
       } else {
         await API.post('/admin/cars', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
           timeout: CAR_UPLOAD_TIMEOUT_MS,
+          showErrorToast: false,
         });
       }
 
-      window.location.href = '/owner/manage-cars';
+      notify.success(editId ? 'Car updated successfully' : 'Car added successfully');
+      navigate('/owner/manage-cars');
     } catch (error) {
-      setErrorMsg(getErrorMessage(error, 'Upload failed. Please try again.'));
+      reportSubmitError(getErrorMessage(error, 'Upload failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -409,12 +426,12 @@ const AddCar = () => {
                   if (!file) return;
                   const normalizedMime = String(file.type || '').toLowerCase();
                   if (normalizedMime && !ALLOWED_IMAGE_MIME_TYPES.has(normalizedMime)) {
-                    setErrorMsg('Only PNG, JPG, JPEG, and WEBP images are allowed.');
+                    reportSubmitError('Only PNG, JPG, JPEG, and WEBP images are allowed.');
                     e.target.value = '';
                     return;
                   }
                   if (file.size > MAX_CAR_IMAGE_SIZE_BYTES) {
-                    setErrorMsg('Image size must be 5MB or less.');
+                    reportSubmitError('Image size must be 5MB or less.');
                     e.target.value = '';
                     return;
                   }
