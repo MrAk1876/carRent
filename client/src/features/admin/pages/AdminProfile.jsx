@@ -6,6 +6,7 @@ import { assets } from '../../../assets/assets';
 import Title from '../components/Title';
 import useNotify from '../../../hooks/useNotify';
 import { normalizeRole } from '../../../utils/rbac';
+import { resolveImageUrl } from '../../../utils/image';
 
 const AdminProfile = () => {
   const notify = useNotify();
@@ -109,6 +110,7 @@ const AdminProfile = () => {
   };
 
   if (!user) return null;
+  const resolvedUserImage = resolveImageUrl(user.image);
 
   const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Admin';
   const role = normalizeRole(user.role);
@@ -130,7 +132,7 @@ const AdminProfile = () => {
                   className="w-24 h-24 rounded-full border border-borderColor overflow-hidden cursor-pointer"
                 >
                   <img
-                    src={user.image || assets.user_profile}
+                    src={resolvedUserImage || assets.user_profile}
                     alt="admin profile"
                     className="w-full h-full object-cover"
                   />

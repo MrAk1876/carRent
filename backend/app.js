@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const connectDB = require('./config/db');
 const { bootstrapBranchSystem } = require('./services/branchService');
 const { bootstrapTenantSystem } = require('./services/tenantService');
@@ -83,6 +84,13 @@ const createApp = (options = {}) => {
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });
+  app.use(
+    '/uploads',
+    express.static(path.resolve(__dirname, 'public', 'uploads'), {
+      maxAge: '7d',
+      fallthrough: true,
+    }),
+  );
   app.use(initializeTenantContext);
 
   ensureDbConnection();

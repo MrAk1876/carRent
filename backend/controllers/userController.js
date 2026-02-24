@@ -2,6 +2,8 @@ const Booking = require('../models/Booking');
 const Request = require('../models/Request');
 const User = require('../models/User');
 const { uploadImageFromBuffer, deleteImageByPublicId } = require('../utils/cloudinaryImage');
+const { saveImageFromBuffer, deleteLocalImageByUrl } = require('../utils/localImageStore');
+const { normalizeStoredImageUrl } = require('../utils/imageUrl');
 const { syncRentalStagesForBookings } = require('../services/rentalStageService');
 const { finalizeBookingSettlement } = require('../services/bookingSettlementService');
 const { runPendingPaymentTimeoutSweep } = require('../services/bookingPaymentTimeoutService');
@@ -10,6 +12,65 @@ const { releaseDriverForBooking } = require('../services/driverAllocationService
 const { isStaffRole } = require('../utils/rbac');
 
 const MIN_PASSWORD_LENGTH = 8;
+
+const sanitizeUserPayload = (user) => {
+  if (!user) return user;
+  const source = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+  source.image = normalizeStoredImageUrl(source.image);
+  return source;
+};
+
+const uploadUserImageWithFallback = async (file) => {
+  try {
+    return await uploadImageFromBuffer(file, { folder: 'car-rental/users' });
+  } catch (cloudinaryError) {
+    console.error('Cloudinary user image upload failed; using local upload fallback:', cloudinaryError?.message || cloudinaryError);
+    return saveImageFromBuffer(file, { subDirectory: 'users' });
+  }
+};
+
+const cleanupPreviousUserImage = async ({ previousImagePublicId, previousImageUrl, nextImagePublicId, nextImageUrl }) => {
+  if (previousImagePublicId && previousImagePublicId !== nextImagePublicId) {
+    try {
+      await deleteImageByPublicId(previousImagePublicId);
+    } catch (cleanupError) {
+      console.error('Failed to cleanup previous user cloud image:', cleanupError);
+    }
+  }
+
+  if (
+    previousImageUrl &&
+    previousImageUrl !== nextImageUrl &&
+    String(previousImageUrl).startsWith('/uploads/')
+  ) {
+    try {
+      await deleteLocalImageByUrl(previousImageUrl);
+    } catch (cleanupError) {
+      console.error('Failed to cleanup previous local user image:', cleanupError);
+    }
+  }
+};
+
+const cleanupNewUploadedImage = async (uploadedImage, contextLabel = 'user image') => {
+  if (!uploadedImage) return;
+
+  if (uploadedImage.publicId) {
+    try {
+      await deleteImageByPublicId(uploadedImage.publicId);
+    } catch (cleanupError) {
+      console.error(`Failed to cleanup ${contextLabel} from cloud:`, cleanupError);
+    }
+    return;
+  }
+
+  if (String(uploadedImage.url || '').startsWith('/uploads/')) {
+    try {
+      await deleteLocalImageByUrl(uploadedImage.url);
+    } catch (cleanupError) {
+      console.error(`Failed to cleanup ${contextLabel} from local storage:`, cleanupError);
+    }
+  }
+};
 
 exports.getMyBookings = async (req, res) => {
   try {
@@ -180,7 +241,7 @@ exports.updateProfile = async (req, res) => {
 
     res.json({
       message: 'Profile updated',
-      user,
+      user: sanitizeUserPayload(user),
     });
   } catch (error) {
     console.error(error);
@@ -221,46 +282,38 @@ exports.updateProfileImage = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    uploadedImage = await uploadImageFromBuffer(req.file, { folder: 'car-rental/users' });
+    uploadedImage = await uploadUserImageWithFallback(req.file);
     const previousImagePublicId = user.imagePublicId || '';
+    const previousImageUrl = normalizeStoredImageUrl(user.image);
 
     const updatedUser = await User.findByIdAndUpdate(
       req.user._id,
       {
         image: uploadedImage.url,
-        imagePublicId: uploadedImage.publicId,
+        imagePublicId: uploadedImage.publicId || '',
       },
       { new: true, runValidators: false }
     );
 
     if (!updatedUser) {
-      if (uploadedImage?.publicId) {
-        await deleteImageByPublicId(uploadedImage.publicId);
-      }
+      await cleanupNewUploadedImage(uploadedImage, 'new user image');
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (previousImagePublicId && previousImagePublicId !== uploadedImage.publicId) {
-      try {
-        await deleteImageByPublicId(previousImagePublicId);
-      } catch (cleanupError) {
-        console.error('Failed to cleanup previous user image:', cleanupError);
-      }
-    }
+    await cleanupPreviousUserImage({
+      previousImagePublicId,
+      previousImageUrl,
+      nextImagePublicId: uploadedImage.publicId || '',
+      nextImageUrl: normalizeStoredImageUrl(updatedUser.image),
+    });
 
     res.json({
-      image: updatedUser.image,
+      image: normalizeStoredImageUrl(updatedUser.image),
       imagePublicId: updatedUser.imagePublicId || '',
     });
   } catch (error) {
     console.error(error);
-    if (uploadedImage?.publicId) {
-      try {
-        await deleteImageByPublicId(uploadedImage.publicId);
-      } catch (cleanupError) {
-        console.error('Failed to cleanup new user image after error:', cleanupError);
-      }
-    }
+    await cleanupNewUploadedImage(uploadedImage, 'new user image after update error');
     const statusCode = Number(error?.statusCode || 500);
     res.status(statusCode).json({ message: error?.message || 'Image upload failed' });
   }
@@ -283,36 +336,30 @@ exports.completeProfile = async (req, res) => {
     user.isProfileComplete = true;
 
     const previousImagePublicId = user.imagePublicId || '';
+    const previousImageUrl = normalizeStoredImageUrl(user.image);
 
     if (req.file) {
-      uploadedImage = await uploadImageFromBuffer(req.file, { folder: 'car-rental/users' });
+      uploadedImage = await uploadUserImageWithFallback(req.file);
       user.image = uploadedImage.url;
-      user.imagePublicId = uploadedImage.publicId;
+      user.imagePublicId = uploadedImage.publicId || '';
     }
 
     await user.save();
 
-    if (uploadedImage?.publicId && previousImagePublicId && previousImagePublicId !== uploadedImage.publicId) {
-      try {
-        await deleteImageByPublicId(previousImagePublicId);
-      } catch (cleanupError) {
-        console.error('Failed to cleanup previous user image:', cleanupError);
-      }
-    }
+    await cleanupPreviousUserImage({
+      previousImagePublicId,
+      previousImageUrl,
+      nextImagePublicId: uploadedImage?.publicId || '',
+      nextImageUrl: normalizeStoredImageUrl(user.image),
+    });
 
     res.json({
       message: 'Profile completed',
-      user,
+      user: sanitizeUserPayload(user),
     });
   } catch (error) {
     console.error(error);
-    if (uploadedImage?.publicId) {
-      try {
-        await deleteImageByPublicId(uploadedImage.publicId);
-      } catch (cleanupError) {
-        console.error('Failed to cleanup new user image after error:', cleanupError);
-      }
-    }
+    await cleanupNewUploadedImage(uploadedImage, 'new user image after complete-profile error');
     const statusCode = Number(error?.statusCode || 500);
     res.status(statusCode).json({ message: error?.message || 'Profile update failed' });
   }

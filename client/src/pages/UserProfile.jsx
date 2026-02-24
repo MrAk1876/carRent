@@ -4,6 +4,7 @@ import Cropper from 'react-easy-crop';
 import { getCroppedImg } from '../utils/cropImage';
 import { assets } from '../assets/assets';
 import useNotify from '../hooks/useNotify';
+import { resolveImageUrl } from '../utils/image';
 
 const Profile = () => {
   const notify = useNotify();
@@ -188,6 +189,7 @@ const Profile = () => {
   };
 
   if (!user) return null;
+  const resolvedUserImage = resolveImageUrl(user.image);
 
   return (
     <>
@@ -201,7 +203,7 @@ const Profile = () => {
                 className="w-32 h-32 rounded-full border-4 border-primary overflow-hidden hover:opacity-90 transition"
               >
                 <img
-                  src={user.image || assets.user_profile}
+                  src={resolvedUserImage || assets.user_profile}
                   alt="Profile"
                   className="w-full h-full object-cover"
                 />

@@ -2,6 +2,7 @@ const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { ROLE, normalizeRole, getPermissionsForRole } = require('../utils/rbac');
+const { normalizeStoredImageUrl } = require('../utils/imageUrl');
 const { ensureTenantById, isTenantSuspended } = require('../services/tenantService');
 const {
   resolveTenantFromRequestContext,
@@ -23,7 +24,7 @@ const buildUserAuthPayload = (user, options = {}) => {
     role: resolvedRole,
     permissions,
     isProfileComplete: user?.isProfileComplete,
-    image: user?.image,
+    image: normalizeStoredImageUrl(user?.image),
     assignedBranches: Array.isArray(user?.assignedBranches) ? user.assignedBranches : [],
     tenantId: String(tenant?._id || user?.tenantId || ''),
     tenantCode: String(tenant?.companyCode || ''),
