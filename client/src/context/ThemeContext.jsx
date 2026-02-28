@@ -15,16 +15,12 @@ const ThemeContext = createContext({
 
 const canUseDom = () => typeof window !== 'undefined' && typeof document !== 'undefined';
 
-const resolveSystemTheme = () => {
-  if (!canUseDom() || typeof window.matchMedia !== 'function') return THEME.LIGHT;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? THEME.DARK : THEME.LIGHT;
-};
-
 const resolveInitialTheme = () => {
   if (!canUseDom()) return THEME.LIGHT;
   const savedTheme = String(window.localStorage.getItem(THEME_STORAGE_KEY) || '').trim().toLowerCase();
   if (savedTheme === THEME.DARK || savedTheme === THEME.LIGHT) return savedTheme;
-  return resolveSystemTheme();
+  // Always start in light mode until user chooses otherwise.
+  return THEME.LIGHT;
 };
 
 const applyThemeClass = (theme) => {
@@ -45,24 +41,6 @@ export const ThemeProvider = ({ children }) => {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
-  useEffect(() => {
-    if (!canUseDom() || typeof window.matchMedia !== 'function') return undefined;
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => {
-      const savedTheme = String(window.localStorage.getItem(THEME_STORAGE_KEY) || '').trim().toLowerCase();
-      if (savedTheme === THEME.DARK || savedTheme === THEME.LIGHT) return;
-      setTheme(media.matches ? THEME.DARK : THEME.LIGHT);
-    };
-
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', onChange);
-      return () => media.removeEventListener('change', onChange);
-    }
-
-    media.addListener(onChange);
-    return () => media.removeListener(onChange);
-  }, []);
-
   const value = useMemo(
     () => ({
       theme,
@@ -77,5 +55,3 @@ export const ThemeProvider = ({ children }) => {
 };
 
 export const useTheme = () => useContext(ThemeContext);
-
-export { THEME };

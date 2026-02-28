@@ -4,10 +4,13 @@
   "type": "module",
   "version": "1.0.0",
   "scripts": {
-    "dev": "npm --prefix backend run dev:single",
+      "dev": "concurrently --kill-others-on-fail --names backend,frontend --prefix \"[{name}]\" --prefix-colors cyan,magenta \"npm --prefix backend run dev\" \"npm --prefix client run dev\"",
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
     "start": "npm --prefix backend run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { assets } from '../assets/assets';
 import { getPublicReviews } from '../services/reviewService';
 import ScrollReveal from './ui/ScrollReveal';
+import { resolveImageUrl } from '../utils/image';
 
 const ReviewSkeleton = () => (
   <div className="rounded-xl border border-white/30 bg-white/15 p-5 animate-pulse">
@@ -85,7 +86,7 @@ const Testimonial = () => {
                     review.user?.lastName || 'User'
                   }`.trim();
                   const location = review.user?.address || review.car?.location || 'CarRental User';
-                  const image = review.user?.image || assets.user_profile;
+                  const image = resolveImageUrl(review.user?.image) || assets.user_profile;
                   return (
                     <ScrollReveal key={review._id} delay={index * 80} direction="up">
                       <div className="rounded-xl border border-white/60 bg-white text-slate-800 p-5 shadow-lg">

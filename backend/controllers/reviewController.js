@@ -4,8 +4,18 @@ const Booking = require('../models/Booking');
 const Car = require('../models/Car');
 const { isConfirmedBookingStatus, normalizeStatusKey } = require('../utils/paymentUtils');
 const { applyCarScopeToQuery, assertCarInScope } = require('../services/adminScopeService');
+const { normalizeStoredImageUrl } = require('../utils/imageUrl');
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
+const sanitizeReviewUserImage = (review) => {
+  if (!review) return review;
+  const source = typeof review.toObject === 'function' ? review.toObject() : { ...review };
+  if (source.user && typeof source.user === 'object') {
+    source.user.image = normalizeStoredImageUrl(source.user.image);
+  }
+  return source;
+};
 
 const parseReviewPayload = (payload, requireAll = true) => {
   const result = {};
@@ -201,7 +211,7 @@ exports.getPublicReviews = async (req, res) => {
       },
     ]);
 
-    return res.json(reviews);
+    return res.json(reviews.map(sanitizeReviewUserImage));
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load public reviews' });
   }
@@ -223,7 +233,7 @@ exports.getCarReviews = async (req, res) => {
       .populate('user', 'firstName lastName image address')
       .sort({ createdAt: -1 });
 
-    return res.json(reviews);
+    return res.json(reviews.map(sanitizeReviewUserImage));
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load car reviews' });
   }
@@ -238,7 +248,7 @@ exports.getAllReviews = async (req, res) => {
       .populate('booking', 'fromDate toDate bookingStatus tripStatus totalAmount')
       .sort({ createdAt: -1 });
 
-    return res.json(reviews);
+    return res.json(reviews.map(sanitizeReviewUserImage));
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load reviews' });
   }
