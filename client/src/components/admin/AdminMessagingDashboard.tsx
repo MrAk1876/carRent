@@ -31,6 +31,8 @@ type Participant = {
 type AdminMessagingDashboardProps = {
   title?: string;
   subtitle?: string;
+  initialSelectedUserId?: string;
+  onSelectedUserIdChange?: (userId: string) => void;
 };
 
 type LooseRecord = Record<string, unknown>;
@@ -163,6 +165,8 @@ const buildParticipantsFromBookings = (rows: LooseRecord[], currentUserId: strin
 const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
   title = 'Admin Messages',
   subtitle = 'Centralized conversation control',
+  initialSelectedUserId = '',
+  onSelectedUserIdChange,
 }) => {
   const theme = useTheme();
   const notify = useNotify();
@@ -173,10 +177,10 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
   const tenantId = toId(currentUser?.tenantId);
 
   const [participants, setParticipants] = useState<Participant[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState(() => toId(initialSelectedUserId));
   const [searchTerm, setSearchTerm] = useState('');
   const [conversationFilter, setConversationFilter] = useState<ConversationFilter>('all');
-  const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [loadingParticipants, setLoadingParticipants] = useState(true);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [threadError, setThreadError] = useState('');
   const [messagesByUser, setMessagesByUser] = useState<Record<string, ChatMessage[]>>({});
@@ -197,6 +201,16 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
   useEffect(() => {
     selectedUserRef.current = selectedUserId;
   }, [selectedUserId]);
+
+  useEffect(() => {
+    const normalizedInitial = toId(initialSelectedUserId);
+    if (!normalizedInitial) return;
+    setSelectedUserId((prev) => prev || normalizedInitial);
+  }, [initialSelectedUserId]);
+
+  useEffect(() => {
+    onSelectedUserIdChange?.(selectedUserId);
+  }, [onSelectedUserIdChange, selectedUserId]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -227,15 +241,31 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
     });
   }, [currentUserId]);
 
-  const syncUnreadCount = useCallback(async () => {
+  const syncUnreadSummary = useCallback(async () => {
     if (!currentUserId) return;
     try {
-      const response = await API.get('/messages/unread-count', { showErrorToast: false });
-      setTotalUnread(Number(response?.data?.unreadCount || 0));
+      const response = await API.get('/messages/unread-summary', { showErrorToast: false });
+      const rowsRaw = Array.isArray(response?.data?.byPeer) ? response.data.byPeer : [];
+      const nextUnreadMap = rowsRaw.reduce((acc, row) => {
+        const peerId = toId((row as LooseRecord)?.peerUserId);
+        if (!peerId) return acc;
+        ensureParticipant(peerId, 'User');
+        acc[peerId] = Number((row as LooseRecord)?.unreadCount || 0);
+        return acc;
+      }, {} as Record<string, number>);
+      setUnreadByUser(nextUnreadMap);
+      setTotalUnread(Number(response?.data?.totalUnread || 0));
+      setHiddenUserIds((prev) => prev.filter((peerId) => Number(nextUnreadMap[peerId] || 0) <= 0));
     } catch {
-      // Silent background refresh.
+      // Fallback for environments where unread summary route is not yet deployed.
+      try {
+        const response = await API.get('/messages/unread-count', { showErrorToast: false });
+        setTotalUnread(Number(response?.data?.unreadCount || 0));
+      } catch {
+        // Silent background refresh.
+      }
     }
-  }, [currentUserId]);
+  }, [currentUserId, ensureParticipant]);
 
   const markMessagesRead = useCallback(async (peerUserId: string, messageIds: string[]) => {
     if (!peerUserId || messageIds.length === 0) return;
@@ -255,8 +285,8 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
       };
     });
     setUnreadByUser((prev) => ({ ...prev, [peerUserId]: 0 }));
-    void syncUnreadCount();
-  }, [syncUnreadCount]);
+    void syncUnreadSummary();
+  }, [syncUnreadSummary]);
 
   const handleToggleHiddenConversation = useCallback((peerUserId: string, hidden: boolean) => {
     const normalizedPeerId = toId(peerUserId);
@@ -299,7 +329,7 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
         await markMessagesRead(normalizedPeerId, unreadIds);
       } else {
         setUnreadByUser((prev) => ({ ...prev, [normalizedPeerId]: 0 }));
-        void syncUnreadCount();
+        void syncUnreadSummary();
       }
     } catch (error) {
       if (!options.silent) {
@@ -310,7 +340,7 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
         setLoadingConversation(false);
       }
     }
-  }, [currentUserId, markMessagesRead]);
+  }, [currentUserId, markMessagesRead, syncUnreadSummary]);
 
   const loadParticipants = useCallback(async () => {
     if (!currentUserId) return;
@@ -328,11 +358,10 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
         unique.set(entry.userId, entry);
       });
       setParticipants([...unique.values()]);
+      setLoadingParticipants(false);
       return;
     } catch {
       // Fallback below.
-    } finally {
-      setLoadingParticipants(false);
     }
 
     try {
@@ -342,17 +371,22 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
     } catch (error) {
       notify.error(getErrorMessage(error, 'Failed to load chat users'));
       setParticipants([]);
+    } finally {
+      setLoadingParticipants(false);
     }
   }, [currentUserId, notify]);
 
   useEffect(() => {
     void loadParticipants();
-    void syncUnreadCount();
-  }, [loadParticipants, syncUnreadCount]);
+    void syncUnreadSummary();
+  }, [loadParticipants, syncUnreadSummary]);
 
   useEffect(() => {
+    if (loadingParticipants) return;
     if (participants.length === 0) {
-      setSelectedUserId('');
+      if (selectedUserId) {
+        setSelectedUserId('');
+      }
       return;
     }
     if (selectedUserId && participants.some((entry) => entry.userId === selectedUserId)) return;
@@ -360,7 +394,11 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
     // Do not auto-open first conversation; admin should pick from list explicitly.
     if (!selectedUserId) return;
     setSelectedUserId('');
-  }, [participants, selectedUserId]);
+  }, [loadingParticipants, participants, selectedUserId]);
+
+  const handleSelectConversation = useCallback((nextUserId: string) => {
+    setSelectedUserId(toId(nextUserId));
+  }, []);
 
   useEffect(() => {
     if (!selectedUserId) return;
@@ -381,17 +419,17 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
   useEffect(() => {
     if (!currentUserId) return undefined;
     const intervalHandle = window.setInterval(() => {
-      void syncUnreadCount();
+      void syncUnreadSummary();
     }, 12000);
     return () => {
       window.clearInterval(intervalHandle);
     };
-  }, [currentUserId, syncUnreadCount]);
+  }, [currentUserId, syncUnreadSummary]);
 
   useEffect(() => {
     if (!currentUserId) return undefined;
     const syncOnFocus = () => {
-      void syncUnreadCount();
+      void syncUnreadSummary();
       const activePeerId = selectedUserRef.current;
       if (activePeerId) {
         void loadConversation(activePeerId, { silent: true });
@@ -408,7 +446,7 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
       window.removeEventListener('focus', syncOnFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentUserId, loadConversation, syncUnreadCount]);
+  }, [currentUserId, loadConversation, syncUnreadSummary]);
 
   useEffect(() => {
     if (!currentUserId) return undefined;
@@ -441,13 +479,14 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
           ...prev,
           [peerId]: Number(prev[peerId] || 0) + 1,
         }));
+        setHiddenUserIds((prev) => prev.filter((entry) => entry !== peerId));
       }
     });
 
     const unsubscribeUnread = socketClient.on('unread:update', (payload) => {
       const payloadUserId = toId(payload?.userId);
       if (payloadUserId && payloadUserId !== currentUserId) return;
-      setTotalUnread(Number(payload?.messages || 0));
+      void syncUnreadSummary();
     });
 
     const unsubscribePresence = socketClient.on('presence:update', (payload) => {
@@ -469,7 +508,7 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
       unsubscribeUnread();
       unsubscribePresence();
     };
-  }, [currentUserId, ensureParticipant, markMessagesRead, tenantId]);
+  }, [currentUserId, ensureParticipant, markMessagesRead, syncUnreadSummary, tenantId]);
 
   const handleSendMessage = useCallback(async (content: string) => {
     if (!selectedUserId || !currentUserId) return;
@@ -648,7 +687,7 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
               conversations={filteredConversationItems}
               selectedUserId={selectedUserId}
               loading={loadingParticipants}
-              onSelectConversation={setSelectedUserId}
+              onSelectConversation={handleSelectConversation}
               onToggleHidden={handleToggleHiddenConversation}
             />
           </Box>

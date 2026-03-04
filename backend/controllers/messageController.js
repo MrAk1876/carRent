@@ -5,6 +5,7 @@ const {
   getConversation,
   markAsRead,
   getUnreadCount,
+  getUnreadSummary,
   getAdminContact,
 } = require('../services/messageService');
 
@@ -14,6 +15,7 @@ const DELETE_MESSAGE_ERROR = 'Failed to delete message';
 const GET_CONVERSATION_ERROR = 'Failed to load conversation';
 const MARK_READ_ERROR = 'Failed to mark message as read';
 const GET_UNREAD_COUNT_ERROR = 'Failed to load unread count';
+const GET_UNREAD_SUMMARY_ERROR = 'Failed to load unread summary';
 const GET_ADMIN_CONTACT_ERROR = 'Failed to load admin contact';
 
 exports.sendMessage = async (req, res) => {
@@ -122,6 +124,20 @@ exports.getUnreadCount = async (req, res) => {
   } catch (error) {
     const status = Number(error?.status || 500);
     const message = status >= 500 ? GET_UNREAD_COUNT_ERROR : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.getUnreadSummary = async (req, res) => {
+  try {
+    const summary = await getUnreadSummary(req.user?._id, {
+      tenantId: req.tenantId,
+    });
+
+    return res.json(summary);
+  } catch (error) {
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? GET_UNREAD_SUMMARY_ERROR : error.message;
     return res.status(status).json({ message });
   }
 };

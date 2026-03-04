@@ -26,6 +26,7 @@ const Navbar = ({ setShowLogin }) => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [lastSelectedUserId, setLastSelectedUserId] = useState('');
   const [searchText, setSearchText] = useState('');
 
   const loggedIn = isLoggedIn();
@@ -336,7 +337,10 @@ const Navbar = ({ setShowLogin }) => {
         }}
       >
         <DialogContent sx={{ p: { xs: 1, sm: 1.5 } }}>
-          <AdminMessagingDashboard />
+          <AdminMessagingDashboard
+            initialSelectedUserId={lastSelectedUserId}
+            onSelectedUserIdChange={setLastSelectedUserId}
+          />
         </DialogContent>
       </Dialog>
 

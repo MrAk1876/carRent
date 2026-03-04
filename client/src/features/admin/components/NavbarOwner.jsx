@@ -12,6 +12,7 @@ const NavbarOwner = ({ onMenuClick, isSidebarOpen }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [chatOpen, setChatOpen] = React.useState(false);
+  const [lastSelectedUserId, setLastSelectedUserId] = React.useState('');
 
   React.useEffect(() => {
     const query = new URLSearchParams(location.search);
@@ -133,7 +134,10 @@ const NavbarOwner = ({ onMenuClick, isSidebarOpen }) => {
           </IconButton>
         </DialogTitle>
         <DialogContent sx={{ p: { xs: 1, sm: 1.5 } }}>
-          <AdminMessagingDashboard />
+          <AdminMessagingDashboard
+            initialSelectedUserId={lastSelectedUserId}
+            onSelectedUserIdChange={setLastSelectedUserId}
+          />
         </DialogContent>
       </Dialog>
     </div>

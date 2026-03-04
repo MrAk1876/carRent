@@ -564,6 +564,58 @@ const getUnreadCount = async (userId, options = {}) => {
   return Number(unreadCount || 0);
 };
 
+const getUnreadSummary = async (userId, options = {}) => {
+  const normalizedUserId = ensureObjectId(userId, 'user id');
+  const receiver = await resolveUser(normalizedUserId);
+  const tenantId = toObjectIdString(options.tenantId || receiver.tenantId);
+
+  if (!tenantId || !mongoose.Types.ObjectId.isValid(tenantId)) {
+    throw createMessageError(400, 'Invalid tenant id');
+  }
+  if (toObjectIdString(receiver.tenantId) !== tenantId) {
+    throw createMessageError(403, 'Message tenant mismatch');
+  }
+
+  const userObjectId = new mongoose.Types.ObjectId(normalizedUserId);
+  const summaryRows = await Message.aggregate([
+    {
+      $match: {
+        tenantId: new mongoose.Types.ObjectId(tenantId),
+        receiverId: userObjectId,
+        isRead: false,
+        isDeletedForAll: { $ne: true },
+        deletedFor: { $ne: userObjectId },
+      },
+    },
+    {
+      $group: {
+        _id: '$senderId',
+        unreadCount: { $sum: 1 },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        peerUserId: { $toString: '$_id' },
+        unreadCount: 1,
+      },
+    },
+  ]);
+
+  const byPeer = Array.isArray(summaryRows)
+    ? summaryRows.map((row) => ({
+      peerUserId: toObjectIdString(row?.peerUserId),
+      unreadCount: Number(row?.unreadCount || 0),
+    }))
+    : [];
+  const totalUnread = byPeer.reduce((total, row) => total + Number(row.unreadCount || 0), 0);
+
+  return {
+    totalUnread,
+    byPeer,
+  };
+};
+
 const getAdminContact = async (userId, options = {}) => {
   const normalizedUserId = ensureObjectId(userId, 'user id');
   const requester = await resolveUser(normalizedUserId);
@@ -616,6 +668,7 @@ module.exports = {
   getConversation,
   markAsRead,
   getUnreadCount,
+  getUnreadSummary,
   getAdminContact,
   MESSAGE_DELETE_SCOPE,
 };

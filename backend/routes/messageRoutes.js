@@ -6,6 +6,7 @@ const {
   getConversation,
   markMessageAsRead,
   getUnreadCount,
+  getUnreadSummary,
   getAdminContact,
 } = require('../controllers/messageController');
 const { protect } = require('../middleware/authMiddleware');
@@ -20,6 +21,7 @@ router.patch('/messages/:id', protect, tenantGuard, updateMessage);
 router.delete('/messages/:id', protect, tenantGuard, deleteMessage);
 router.patch('/messages/read/:id', protect, tenantGuard, markMessageAsRead);
 router.get('/messages/unread-count', protect, tenantGuard, getUnreadCount);
+router.get('/messages/unread-summary', protect, tenantGuard, getUnreadSummary);
 router.get('/messages/admin-contact', protect, tenantGuard, getAdminContact);
 
 module.exports = router;
