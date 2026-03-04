@@ -187,9 +187,43 @@ const markNotificationRead = async (notificationId, userId, options = {}) => {
   return notification;
 };
 
+const deleteNotification = async (notificationId, userId, options = {}) => {
+  const normalizedNotificationId = ensureObjectId(notificationId, 'notification id');
+  const normalizedUserId = ensureObjectId(userId, 'user id');
+  const receiver = await resolveUserTenant(normalizedUserId);
+  const tenantId = toObjectIdString(options.tenantId || receiver.tenantId);
+
+  if (!tenantId || !mongoose.Types.ObjectId.isValid(tenantId)) {
+    throw createNotificationError(400, 'Invalid tenant id for notification');
+  }
+  if (receiver.tenantId !== tenantId) {
+    throw createNotificationError(403, 'Notification tenant mismatch');
+  }
+
+  const notification = await Notification.findOneAndDelete({
+    _id: normalizedNotificationId,
+    userId: normalizedUserId,
+    tenantId,
+  }).lean();
+
+  if (!notification) {
+    throw createNotificationError(404, 'Notification not found');
+  }
+
+  void emitUnreadUpdate({
+    tenantId,
+    userId: normalizedUserId,
+  }).catch((realtimeError) => {
+    console.error('notification unread realtime emit failed:', realtimeError?.message || realtimeError);
+  });
+
+  return notification;
+};
+
 module.exports = {
   createNotificationError,
   createNotification,
   getUserNotifications,
   markNotificationRead,
+  deleteNotification,
 };

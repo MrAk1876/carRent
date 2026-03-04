@@ -2,6 +2,7 @@ const express = require('express');
 const {
   getNotifications,
   markNotificationAsRead,
+  deleteNotification,
 } = require('../controllers/notificationController');
 const { protect } = require('../middleware/authMiddleware');
 const { enforceTenantActive } = require('../middleware/tenantMiddleware');
@@ -11,5 +12,6 @@ const tenantGuard = enforceTenantActive();
 
 router.get('/notifications', protect, tenantGuard, getNotifications);
 router.patch('/notifications/read/:id', protect, tenantGuard, markNotificationAsRead);
+router.delete('/notifications/:id', protect, tenantGuard, deleteNotification);
 
 module.exports = router;
