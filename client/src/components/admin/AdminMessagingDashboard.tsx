@@ -255,7 +255,8 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
       };
     });
     setUnreadByUser((prev) => ({ ...prev, [peerUserId]: 0 }));
-  }, []);
+    void syncUnreadCount();
+  }, [syncUnreadCount]);
 
   const handleToggleHiddenConversation = useCallback((peerUserId: string, hidden: boolean) => {
     const normalizedPeerId = toId(peerUserId);
@@ -298,6 +299,7 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
         await markMessagesRead(normalizedPeerId, unreadIds);
       } else {
         setUnreadByUser((prev) => ({ ...prev, [normalizedPeerId]: 0 }));
+        void syncUnreadCount();
       }
     } catch (error) {
       if (!options.silent) {

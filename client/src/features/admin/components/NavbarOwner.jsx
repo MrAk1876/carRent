@@ -3,7 +3,7 @@ import { assets } from '../../../assets/assets';
 import { getUser } from '../../../utils/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { Dialog, DialogContent } from '@mui/material';
+import { Dialog, DialogContent, DialogTitle, IconButton } from '@mui/material';
 import NotificationBell from '../../../components/notifications/NotificationBell';
 import AdminMessagingDashboard from '../../../components/admin/AdminMessagingDashboard';
 
@@ -114,6 +114,24 @@ const NavbarOwner = ({ onMenuClick, isSidebarOpen }) => {
           },
         }}
       >
+        <DialogTitle
+          sx={{
+            py: 1,
+            px: 1.5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <span style={{ fontSize: 14, fontWeight: 700 }}>Admin Chat</span>
+          <IconButton size="small" onClick={() => setChatOpen(false)} aria-label="Close chat dialog">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </IconButton>
+        </DialogTitle>
         <DialogContent sx={{ p: { xs: 1, sm: 1.5 } }}>
           <AdminMessagingDashboard />
         </DialogContent>

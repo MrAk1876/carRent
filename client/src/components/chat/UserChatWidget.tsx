@@ -162,7 +162,8 @@ const UserChatWidget: React.FC<UserChatWidgetProps> = ({
       const readSet = new Set(messageIds);
       return prev.map((message) => (readSet.has(message._id) ? { ...message, isRead: true } : message));
     });
-  }, []);
+    void syncUnreadCount();
+  }, [syncUnreadCount]);
 
   const loadConversation = useCallback(async (targetPeerId: string, options: { silent?: boolean } = {}) => {
     const normalizedPeerId = toId(targetPeerId);
@@ -189,6 +190,8 @@ const UserChatWidget: React.FC<UserChatWidgetProps> = ({
         .map((message) => message._id);
       if (unreadIds.length > 0) {
         await markMessagesRead(unreadIds);
+      } else {
+        void syncUnreadCount();
       }
     } catch (error) {
       if (!options.silent) {
