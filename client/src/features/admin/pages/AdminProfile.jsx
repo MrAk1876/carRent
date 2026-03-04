@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import dayjs from 'dayjs';
 import API, { getErrorMessage } from '../../../api';
 import Cropper from 'react-easy-crop';
 import { getCroppedImg } from '../../../utils/cropImage';
@@ -7,9 +8,13 @@ import Title from '../components/Title';
 import useNotify from '../../../hooks/useNotify';
 import { normalizeRole } from '../../../utils/rbac';
 import { resolveImageUrl } from '../../../utils/image';
+import UniversalCalendarInput from '../../../components/UniversalCalendarInput';
+
+const normalizePhoneDigits = (value) => String(value || '').replace(/\D/g, '').slice(0, 10);
 
 const AdminProfile = () => {
   const notify = useNotify();
+  const todayDateKey = dayjs().format('YYYY-MM-DD');
   const [user, setUser] = useState(null);
   const [showPass, setShowPass] = useState(false);
   const [password, setPassword] = useState('');
@@ -53,7 +58,7 @@ const AdminProfile = () => {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
-        phone: user.phone,
+        phone: normalizePhoneDigits(user.phone),
         address: user.address,
         dob: user.dob ? String(user.dob).split('T')[0] : '',
       };
@@ -205,19 +210,30 @@ const AdminProfile = () => {
                 <label className="text-xs text-gray-500">Phone</label>
                 <input
                   className="mt-1 border border-borderColor rounded-lg px-3 py-2 w-full"
-                  value={user.phone || ''}
-                  onChange={(e) => setUser({ ...user, phone: e.target.value })}
-                  placeholder="Phone number"
+                  value={normalizePhoneDigits(user.phone)}
+                  onChange={(e) => setUser({ ...user, phone: normalizePhoneDigits(e.target.value) })}
+                  placeholder="Phone number (10 digits)"
+                  inputMode="numeric"
+                  maxLength={10}
                 />
               </div>
               <div>
                 <label className="text-xs text-gray-500">Date of Birth</label>
-                <input
-                  type="date"
-                  className="mt-1 border border-borderColor rounded-lg px-3 py-2 w-full"
-                  value={user.dob?.split('T')[0] || ''}
-                  onChange={(e) => setUser({ ...user, dob: e.target.value })}
-                />
+                <div className="mt-1">
+                  <UniversalCalendarInput
+                    mode="single"
+                    variant="form"
+                    appearance="dob"
+                    value={user.dob?.split('T')[0] || null}
+                    minDate="1900-01-01"
+                    maxDate={todayDateKey}
+                    yearRange={{ start: 1900, end: new Date().getFullYear() }}
+                    onChange={(nextValue) =>
+                      setUser({ ...user, dob: typeof nextValue === 'string' ? nextValue : '' })
+                    }
+                    placeholder="Select date of birth"
+                  />
+                </div>
               </div>
               <div className="md:col-span-2">
                 <label className="text-xs text-gray-500">Address</label>
@@ -284,8 +300,8 @@ const AdminProfile = () => {
       </div>
 
       {showCrop && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3 sm:p-4">
-          <div className="bg-white p-4 rounded-lg w-[min(92vw,360px)] h-[min(82vh,480px)] flex flex-col">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3 sm:p-4 modal-backdrop-enter">
+          <div className="bg-white p-4 rounded-lg w-[min(92vw,360px)] h-[min(82vh,480px)] flex flex-col modal-panel-enter">
             <div className="relative flex-1">
               <Cropper
                 image={imageSrc}

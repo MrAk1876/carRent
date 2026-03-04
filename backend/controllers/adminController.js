@@ -1,6 +1,7 @@
 const Request = require('../models/Request');
 const Booking = require('../models/Booking');
 const Car = require('../models/Car');
+const CarCategory = require('../models/CarCategory');
 const Maintenance = require('../models/Maintenance');
 const Branch = require('../models/Branch');
 const User = require('../models/User');
@@ -55,6 +56,7 @@ const {
   getScopedCarIds,
 } = require('../services/adminScopeService');
 const {
+  MAIN_BRANCH_CODE,
   ensureMainBranch,
   ensureBranchById,
   ensureCarBranch,
@@ -115,8 +117,28 @@ const BRANCH_SCOPED_ROLES = new Set([
   ROLE.FINANCE_MANAGER,
   ROLE.SUPPORT_STAFF,
 ]);
+const LOCATION_CONTROL_ROLES = new Set([ROLE.SUPER_ADMIN, ROLE.BRANCH_ADMIN]);
+const CATEGORY_CONTROL_ROLES = new Set([ROLE.SUPER_ADMIN]);
+const DEFAULT_CAR_CATEGORIES = Object.freeze([
+  'Sedan',
+  'SUV',
+  'Luxury Sedan',
+  'Luxury SUV',
+  'Premium SUV',
+  'Premium Sedan',
+  'Compact SUV',
+  'Hatchback',
+  'Economy SUV',
+  'MPV',
+  'Sports Car',
+  'Premium Hatchback',
+  'Adventure SUV',
+  'Luxury Adventure SUV',
+]);
 
 const isBranchScopedRole = (roleValue) => BRANCH_SCOPED_ROLES.has(normalizeRole(roleValue, ROLE.USER));
+const canManageBranchLocations = (user) => LOCATION_CONTROL_ROLES.has(normalizeRole(user?.role, ROLE.USER));
+const canManageCarCategories = (user) => CATEGORY_CONTROL_ROLES.has(normalizeRole(user?.role, ROLE.USER));
 
 const ensureSuperAdminAccess = (user) => {
   if (normalizeRole(user?.role, ROLE.USER) === ROLE.SUPER_ADMIN) {
@@ -124,6 +146,20 @@ const ensureSuperAdminAccess = (user) => {
   }
 
   const error = new Error('SuperAdmin access required');
+  error.status = 403;
+  throw error;
+};
+
+const ensureLocationControlAccess = (user) => {
+  if (canManageBranchLocations(user)) return;
+  const error = new Error('Location management access denied');
+  error.status = 403;
+  throw error;
+};
+
+const ensureCategoryControlAccess = (user) => {
+  if (canManageCarCategories(user)) return;
+  const error = new Error('Category management access denied');
   error.status = 403;
   throw error;
 };
@@ -324,6 +360,188 @@ const parseBooleanInput = (value, fallback = false) => {
     if (['false', '0', 'no', 'n'].includes(normalized)) return false;
   }
   return fallback;
+};
+
+const normalizePhoneDigits = (value) => String(value || '').replace(/\D/g, '');
+
+const parseOptionalTenDigitPhone = (value, fieldName = 'contactNumber') => {
+  const normalized = normalizePhoneDigits(value);
+  if (!normalized) return '';
+  if (!/^[0-9]{10}$/.test(normalized)) {
+    const error = new Error(`${fieldName} must be exactly 10 digits`);
+    error.status = 422;
+    throw error;
+  }
+  return normalized;
+};
+
+const normalizeCompactText = (value) =>
+  String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const normalizeLocationName = (value) => normalizeCompactText(value);
+const normalizeCategoryName = (value) => normalizeCompactText(value);
+
+const toLowerCaseKey = (value) => normalizeLocationName(value).toLowerCase();
+const toCategoryKey = (value) => normalizeCategoryName(value).toLowerCase();
+
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const findLocationMatch = (locations = [], value) => {
+  const normalizedTarget = toLowerCaseKey(value);
+  if (!normalizedTarget) return '';
+  return locations.find((entry) => toLowerCaseKey(entry) === normalizedTarget) || '';
+};
+
+const findCategoryMatch = (categories = [], value) => {
+  const normalizedTarget = toCategoryKey(value);
+  if (!normalizedTarget) return '';
+  return categories.find((entry) => toCategoryKey(entry) === normalizedTarget) || '';
+};
+
+const resolveBranchForLocationWrite = async (user, branchId) => {
+  ensureLocationControlAccess(user);
+
+  const normalizedBranchId = String(branchId || '').trim();
+  if (!normalizedBranchId) {
+    const error = new Error('branchId is required');
+    error.status = 422;
+    throw error;
+  }
+
+  const branch = await ensureBranchById(normalizedBranchId);
+  if (!branch) {
+    const error = new Error('Branch not found');
+    error.status = 404;
+    throw error;
+  }
+
+  const scopedBranchIds = getScopedBranchIds(user);
+  if (Array.isArray(scopedBranchIds) && !scopedBranchIds.includes(String(branch._id))) {
+    const error = new Error('Not allowed for this branch scope');
+    error.status = 403;
+    throw error;
+  }
+
+  return branch;
+};
+
+const toLocationUsageMap = (cars = []) => {
+  const usageByBranch = new Map();
+
+  cars.forEach((car) => {
+    const branchId = String(car?.branchId || '').trim();
+    const location = normalizeLocationName(car?.location);
+    if (!branchId || !location) return;
+
+    const branchUsage = usageByBranch.get(branchId) || new Map();
+    const key = location.toLowerCase();
+    const existingEntry = branchUsage.get(key);
+    if (existingEntry) {
+      existingEntry.carCount += 1;
+    } else {
+      branchUsage.set(key, { name: location, carCount: 1 });
+    }
+    usageByBranch.set(branchId, branchUsage);
+  });
+
+  return usageByBranch;
+};
+
+const toCategoryUsageMap = (cars = []) => {
+  const usageMap = new Map();
+  cars.forEach((car) => {
+    const categoryName = normalizeCategoryName(car?.category);
+    if (!categoryName) return;
+    const key = toCategoryKey(categoryName);
+    const existing = usageMap.get(key);
+    if (existing) {
+      existing.carCount += 1;
+    } else {
+      usageMap.set(key, {
+        name: categoryName,
+        carCount: 1,
+      });
+    }
+  });
+  return usageMap;
+};
+
+const mergeCategoryEntries = ({ savedCategories = [], usageMap = new Map(), includeDefaults = false }) => {
+  const merged = new Map();
+  const defaultKeySet = new Set();
+
+  if (includeDefaults) {
+    DEFAULT_CAR_CATEGORIES.forEach((categoryName) => {
+      const key = toCategoryKey(categoryName);
+      if (!key) return;
+      defaultKeySet.add(key);
+      if (!merged.has(key)) {
+        merged.set(key, {
+          name: categoryName,
+          carCount: 0,
+          legacyOnly: false,
+          managed: false,
+          isDefault: true,
+        });
+      }
+    });
+  }
+
+  savedCategories.forEach((category) => {
+    const normalizedName = normalizeCategoryName(category?.name);
+    const key = toCategoryKey(normalizedName || category?.nameKey);
+    if (!key) return;
+
+    const existingEntry = merged.get(key);
+    const usageEntry = usageMap.get(key);
+    merged.set(key, {
+      name: normalizedName || existingEntry?.name || usageEntry?.name || key,
+      carCount: Number(usageEntry?.carCount || existingEntry?.carCount || 0),
+      legacyOnly: false,
+      managed: true,
+      isDefault: defaultKeySet.has(key),
+    });
+  });
+
+  usageMap.forEach((usageEntry, key) => {
+    const existingEntry = merged.get(key);
+    merged.set(key, {
+      name: existingEntry?.name || usageEntry?.name || key,
+      carCount: Number(usageEntry?.carCount || existingEntry?.carCount || 0),
+      legacyOnly: !existingEntry?.managed,
+      managed: Boolean(existingEntry?.managed),
+      isDefault: Boolean(existingEntry?.isDefault || defaultKeySet.has(key)),
+    });
+  });
+
+  return [...merged.values()].sort((left, right) => left.name.localeCompare(right.name));
+};
+
+const findCarLocationMatchForBranch = async (branchId, locationName) => {
+  const normalized = normalizeLocationName(locationName);
+  if (!branchId || !normalized) return '';
+
+  const locationRegex = new RegExp(`^${escapeRegExp(normalized)}$`, 'i');
+  const car = await Car.findOne({
+    branchId,
+    location: { $regex: locationRegex },
+  })
+    .select('location')
+    .lean();
+
+  return normalizeLocationName(car?.location);
+};
+
+const resolveExistingBranchLocationName = async (branch, locationName) => {
+  const currentLocations = getBranchServiceCities(branch);
+  const branchLocation = findLocationMatch(currentLocations, locationName);
+  if (branchLocation) {
+    return branchLocation;
+  }
+
+  return findCarLocationMatchForBranch(branch?._id, locationName);
 };
 
 const toNonNegativeNumber = (value, fallback = 0) => {
@@ -666,7 +884,6 @@ exports.approveRequest = async (req, res) => {
       }
     }
 
-    await updateCarFleetStatus(request.car._id, FLEET_STATUS.RESERVED);
     await Request.findByIdAndDelete(req.params.id);
     queueAdvancePaidConfirmationEmail(booking);
 
@@ -1109,17 +1326,22 @@ exports.addCarMaintenance = async (req, res) => {
       const syncResult = await syncCarFleetStatusFromMaintenance(car._id, { now });
       updatedCar = syncResult?.car || updatedCar;
     } else if (shouldMoveToMaintenanceNow) {
-      updatedCar = await updateCarFleetStatus(car._id, FLEET_STATUS.MAINTENANCE);
-      queueAuditLog({
-        userId: req.user?._id,
-        actionType: 'VEHICLE_MARKED_MAINTENANCE',
-        targetEntity: 'Car',
-        targetId: String(car._id),
-        meta: {
-          serviceDate: normalizedPayload.serviceDate,
-          maintenanceId: String(maintenance._id),
-        },
-      });
+      const carBranch = await ensureBranchById(car.branchId);
+      if (carBranch && !carBranch.isActive) {
+        updatedCar = await updateCarFleetStatus(car._id, FLEET_STATUS.INACTIVE);
+      } else {
+        updatedCar = await updateCarFleetStatus(car._id, FLEET_STATUS.MAINTENANCE);
+        queueAuditLog({
+          userId: req.user?._id,
+          actionType: 'VEHICLE_MARKED_MAINTENANCE',
+          targetEntity: 'Car',
+          targetId: String(car._id),
+          meta: {
+            serviceDate: normalizedPayload.serviceDate,
+            maintenanceId: String(maintenance._id),
+          },
+        });
+      }
     }
 
     queueAuditLog({
@@ -1465,6 +1687,13 @@ exports.updateCarFleetStatus = async (req, res) => {
       return res.status(422).json({ message: 'Invalid fleet status' });
     }
 
+    const { branch } = await ensureCarBranch(car);
+    if (branch && !branch.isActive && requestedStatus !== FLEET_STATUS.INACTIVE) {
+      return res.status(422).json({
+        message: 'Cannot set active fleet status while branch is inactive',
+      });
+    }
+
     const allowedManualTargets = [FLEET_STATUS.AVAILABLE, FLEET_STATUS.MAINTENANCE, FLEET_STATUS.INACTIVE];
     if (!allowedManualTargets.includes(requestedStatus)) {
       return res.status(422).json({ message: 'Manual update supports only Available, Maintenance, or Inactive' });
@@ -1536,6 +1765,10 @@ exports.addCar = async (req, res) => {
     const targetBranch = await resolveBranchForCarWrite(req.user, req.body?.branchId);
     data.branchId = targetBranch?._id || null;
     data.location = normalizeLocationForBranch(targetBranch, data.location);
+    if (targetBranch && !targetBranch.isActive) {
+      data.fleetStatus = FLEET_STATUS.INACTIVE;
+      data.isAvailable = false;
+    }
     await assertTenantEntityLimit(req, {
       model: Car,
       limitField: 'maxVehicles',
@@ -2187,6 +2420,627 @@ exports.getBranchOptions = async (req, res) => {
   }
 };
 
+exports.getCarCategories = async (req, res) => {
+  try {
+    let carQuery = {};
+    carQuery = await applyCarScopeToQuery(req.user, carQuery);
+
+    const [savedCategories, cars] = await Promise.all([
+      CarCategory.find({})
+        .select('name nameKey')
+        .sort({ name: 1 })
+        .lean(),
+      Car.find(carQuery).select('category').lean(),
+    ]);
+
+    const usageMap = toCategoryUsageMap(cars);
+    const categories = mergeCategoryEntries({
+      savedCategories,
+      usageMap,
+      includeDefaults: true,
+    });
+
+    return res.json({
+      categories,
+      canManage: canManageCarCategories(req.user),
+    });
+  } catch (error) {
+    console.error('getCarCategories error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to load car categories' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.createCarCategory = async (req, res) => {
+  try {
+    ensureCategoryControlAccess(req.user);
+
+    const categoryName = normalizeCategoryName(req.body?.name);
+    if (!categoryName) {
+      return res.status(422).json({ message: 'Category name is required' });
+    }
+
+    const categoryKey = toCategoryKey(categoryName);
+    const existingCategory = await CarCategory.findOne({ nameKey: categoryKey }).lean();
+    if (existingCategory?._id) {
+      return res.status(200).json({
+        message: 'Category already exists',
+        category: normalizeCategoryName(existingCategory.name),
+      });
+    }
+
+    const categoryRegex = new RegExp(`^${escapeRegExp(categoryName)}$`, 'i');
+    const legacyCategory = await Car.findOne({ category: { $regex: categoryRegex } })
+      .select('category')
+      .lean();
+    if (legacyCategory?.category) {
+      return res.status(200).json({
+        message: 'Category already exists',
+        category: normalizeCategoryName(legacyCategory.category),
+      });
+    }
+
+    const createdCategory = await CarCategory.create({
+      name: categoryName,
+    });
+
+    return res.status(201).json({
+      message: 'Category added successfully',
+      category: normalizeCategoryName(createdCategory.name),
+    });
+  } catch (error) {
+    console.error('createCarCategory error:', error);
+    if (Number(error?.code) === 11000) {
+      return res.status(200).json({ message: 'Category already exists' });
+    }
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to add category' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.renameCarCategory = async (req, res) => {
+  try {
+    ensureCategoryControlAccess(req.user);
+
+    const currentName = normalizeCategoryName(req.body?.currentName);
+    const nextName = normalizeCategoryName(req.body?.nextName);
+
+    if (!currentName || !nextName) {
+      return res.status(422).json({ message: 'currentName and nextName are required' });
+    }
+    if (toCategoryKey(currentName) === toCategoryKey(nextName)) {
+      return res.status(422).json({ message: 'Please provide a different category name' });
+    }
+
+    const currentCategoryKey = toCategoryKey(currentName);
+    const nextCategoryKey = toCategoryKey(nextName);
+    const [savedCurrentCategory, savedNextCategory] = await Promise.all([
+      CarCategory.findOne({ nameKey: currentCategoryKey }),
+      CarCategory.findOne({ nameKey: nextCategoryKey }).lean(),
+    ]);
+    if (savedNextCategory?._id) {
+      return res.status(422).json({ message: 'Target category already exists' });
+    }
+
+    const currentCategoryRegex = new RegExp(`^${escapeRegExp(currentName)}$`, 'i');
+    const nextCategoryRegex = new RegExp(`^${escapeRegExp(nextName)}$`, 'i');
+    const [carUsingCurrentCategory, carUsingNextCategory] = await Promise.all([
+      Car.findOne({ category: { $regex: currentCategoryRegex } }).select('category').lean(),
+      Car.findOne({ category: { $regex: nextCategoryRegex } }).select('_id').lean(),
+    ]);
+
+    if (carUsingNextCategory?._id) {
+      return res.status(422).json({ message: 'Target category already exists' });
+    }
+    if (!savedCurrentCategory?._id && !carUsingCurrentCategory?.category) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+
+    const existingCurrentName = normalizeCategoryName(
+      savedCurrentCategory?.name || carUsingCurrentCategory?.category || currentName,
+    );
+
+    if (savedCurrentCategory?._id) {
+      savedCurrentCategory.name = nextName;
+      await savedCurrentCategory.save();
+    } else {
+      await CarCategory.create({ name: nextName });
+    }
+
+    const existingCategoryRegex = new RegExp(`^${escapeRegExp(existingCurrentName)}$`, 'i');
+    const updateResult = await Car.updateMany(
+      { category: { $regex: existingCategoryRegex } },
+      { $set: { category: nextName } },
+    );
+
+    return res.json({
+      message: 'Category updated successfully',
+      category: nextName,
+      movedCars: Number(updateResult?.modifiedCount || 0),
+    });
+  } catch (error) {
+    console.error('renameCarCategory error:', error);
+    if (Number(error?.code) === 11000) {
+      return res.status(422).json({ message: 'Target category already exists' });
+    }
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to update category' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.deleteCarCategory = async (req, res) => {
+  try {
+    ensureCategoryControlAccess(req.user);
+
+    const categoryName = normalizeCategoryName(req.query?.name || req.body?.name);
+    if (!categoryName) {
+      return res.status(422).json({ message: 'Category name is required' });
+    }
+
+    const categoryKey = toCategoryKey(categoryName);
+    const savedCategory = await CarCategory.findOne({ nameKey: categoryKey });
+    const existingCategoryName = normalizeCategoryName(savedCategory?.name || categoryName);
+    const categoryRegex = new RegExp(`^${escapeRegExp(existingCategoryName)}$`, 'i');
+
+    const carsUsingCategory = await Car.countDocuments({
+      category: { $regex: categoryRegex },
+    });
+    if (carsUsingCategory > 0) {
+      return res.status(422).json({
+        message: 'Category has active cars. Move or update those cars before deleting this category.',
+        carCount: carsUsingCategory,
+      });
+    }
+
+    if (!savedCategory?._id) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+
+    await CarCategory.deleteOne({ _id: savedCategory._id });
+
+    return res.json({
+      message: 'Category deleted successfully',
+    });
+  } catch (error) {
+    console.error('deleteCarCategory error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to delete category' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.getCarsForCategory = async (req, res) => {
+  try {
+    ensureCategoryControlAccess(req.user);
+
+    const categoryName = normalizeCategoryName(req.query?.name || req.body?.name);
+    if (!categoryName) {
+      return res.status(422).json({ message: 'Category name is required' });
+    }
+
+    const categoryRegex = new RegExp(`^${escapeRegExp(categoryName)}$`, 'i');
+    const cars = await Car.find({ category: { $regex: categoryRegex } })
+      .select('_id name brand model registrationNumber category location fleetStatus branchId')
+      .populate('branchId', 'branchName branchCode city state serviceCities isActive')
+      .sort({ brand: 1, model: 1 })
+      .lean();
+
+    return res.json({
+      category: categoryName,
+      cars,
+    });
+  } catch (error) {
+    console.error('getCarsForCategory error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to load cars for category' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.moveCarCategory = async (req, res) => {
+  try {
+    ensureCategoryControlAccess(req.user);
+
+    const carId = String(req.body?.carId || '').trim();
+    const fromCategory = normalizeCategoryName(req.body?.fromCategory);
+    const toCategory = normalizeCategoryName(req.body?.toCategory);
+
+    if (!carId || !fromCategory || !toCategory) {
+      return res.status(422).json({ message: 'carId, fromCategory and toCategory are required' });
+    }
+    if (toCategoryKey(fromCategory) === toCategoryKey(toCategory)) {
+      return res.status(422).json({ message: 'Target category must be different' });
+    }
+
+    const car = await Car.findById(carId);
+    if (!car) {
+      return res.status(404).json({ message: 'Car not found' });
+    }
+
+    const currentCategory = normalizeCategoryName(car.category);
+    if (toCategoryKey(currentCategory) !== toCategoryKey(fromCategory)) {
+      return res.status(422).json({ message: 'Car is no longer assigned to selected category' });
+    }
+
+    car.category = toCategory;
+    await car.save();
+
+    return res.json({
+      message: 'Car category updated successfully',
+      car: {
+        _id: String(car._id),
+        category: normalizeCategoryName(car.category),
+      },
+    });
+  } catch (error) {
+    console.error('moveCarCategory error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to move car category' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.getBranchLocations = async (req, res) => {
+  try {
+    ensureLocationControlAccess(req.user);
+
+    const scopedBranchIds = getScopedBranchIds(req.user);
+    const branchQuery =
+      Array.isArray(scopedBranchIds)
+        ? (scopedBranchIds.length > 0 ? { _id: { $in: scopedBranchIds } } : { _id: { $in: [] } })
+        : {};
+
+    const branches = await Branch.find(branchQuery)
+      .select('_id branchName branchCode city state serviceCities isActive')
+      .sort({ branchName: 1 })
+      .lean();
+
+    const branchIds = branches.map((branch) => String(branch?._id || '')).filter(Boolean);
+    const cars = branchIds.length
+      ? await Car.find({ branchId: { $in: branchIds } })
+        .select('_id branchId location')
+        .lean()
+      : [];
+    const usageByBranch = toLocationUsageMap(cars);
+
+    const branchLocations = branches.map((branch) => {
+      const normalizedBranch = normalizeBranchForClient(branch);
+      const branchId = String(branch?._id || '').trim();
+      const branchUsage = usageByBranch.get(branchId) || new Map();
+      const primaryLocationKey = toLowerCaseKey(branch?.city);
+
+      const mergedLocations = new Map();
+      getBranchServiceCities(branch).forEach((locationName) => {
+        const key = toLowerCaseKey(locationName);
+        if (!key) return;
+        const usageEntry = branchUsage.get(key);
+        mergedLocations.set(key, {
+          name: normalizeLocationName(locationName),
+          carCount: Number(usageEntry?.carCount || 0),
+          isPrimary: key === primaryLocationKey,
+          legacyOnly: false,
+        });
+      });
+
+      branchUsage.forEach((usageEntry, key) => {
+        if (mergedLocations.has(key)) return;
+        mergedLocations.set(key, {
+          name: usageEntry.name,
+          carCount: Number(usageEntry.carCount || 0),
+          isPrimary: key === primaryLocationKey,
+          legacyOnly: true,
+        });
+      });
+
+      const locations = [...mergedLocations.values()].sort((left, right) => left.name.localeCompare(right.name));
+      return {
+        ...normalizedBranch,
+        locations,
+      };
+    });
+
+    return res.json({
+      scoped: Array.isArray(scopedBranchIds),
+      branches: branchLocations,
+    });
+  } catch (error) {
+    console.error('getBranchLocations error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to load branch locations' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.getCarsForBranchLocation = async (req, res) => {
+  try {
+    const branch = await resolveBranchForLocationWrite(req.user, req.query?.branchId || req.body?.branchId);
+    const locationName = normalizeLocationName(req.query?.name || req.body?.name);
+    if (!locationName) {
+      return res.status(422).json({ message: 'Location name is required' });
+    }
+
+    const existingLocation = await resolveExistingBranchLocationName(branch, locationName);
+    if (!existingLocation) {
+      return res.status(404).json({ message: 'Location not found in selected branch' });
+    }
+
+    const locationRegex = new RegExp(`^${escapeRegExp(existingLocation)}$`, 'i');
+    const cars = await Car.find({
+      branchId: branch._id,
+      location: { $regex: locationRegex },
+    })
+      .select('_id name brand model registrationNumber category location fleetStatus branchId')
+      .populate('branchId', 'branchName branchCode city state serviceCities isActive')
+      .sort({ brand: 1, model: 1 })
+      .lean();
+
+    return res.json({
+      location: existingLocation,
+      branch: normalizeBranchForClient(branch.toObject()),
+      cars,
+    });
+  } catch (error) {
+    console.error('getCarsForBranchLocation error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to load cars for location' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.moveCarBranchLocation = async (req, res) => {
+  try {
+    const sourceBranchId = req.body?.fromBranchId || req.body?.branchId;
+    const targetBranchId = req.body?.toBranchId || req.body?.branchId || sourceBranchId;
+    const sourceBranch = await resolveBranchForLocationWrite(req.user, sourceBranchId);
+    const targetBranch = await resolveBranchForLocationWrite(req.user, targetBranchId);
+    const carId = String(req.body?.carId || '').trim();
+    const fromLocation = normalizeLocationName(req.body?.fromLocation);
+    const toLocation = normalizeLocationName(req.body?.toLocation);
+
+    if (!carId || !fromLocation || !toLocation) {
+      return res.status(422).json({ message: 'carId, fromLocation and toLocation are required' });
+    }
+
+    const car = await Car.findById(carId);
+    if (!car) {
+      return res.status(404).json({ message: 'Car not found' });
+    }
+    if (String(car.branchId || '') !== String(sourceBranch._id || '')) {
+      return res.status(422).json({ message: 'Car does not belong to selected branch' });
+    }
+
+    const resolvedFromLocation = await resolveExistingBranchLocationName(sourceBranch, fromLocation);
+    if (!resolvedFromLocation) {
+      return res.status(404).json({ message: 'Current location not found in selected branch' });
+    }
+    if (toLowerCaseKey(car.location) !== toLowerCaseKey(resolvedFromLocation)) {
+      return res.status(422).json({ message: 'Car is no longer assigned to selected location' });
+    }
+
+    const nextLocation = normalizeLocationForBranch(targetBranch, toLocation);
+    const branchChanged = String(sourceBranch._id || '') !== String(targetBranch._id || '');
+    if (!branchChanged && toLowerCaseKey(nextLocation) === toLowerCaseKey(resolvedFromLocation)) {
+      return res.status(422).json({ message: 'Target location must be different' });
+    }
+
+    if (branchChanged) {
+      const hasBlockingBooking = await hasBlockingBookingsForCar(car._id);
+      const hasPendingRequest = Boolean(
+        await Request.findOne({ car: car._id, status: 'pending' }).select('_id').lean(),
+      );
+      if (hasBlockingBooking || hasPendingRequest) {
+        return res.status(422).json({
+          message: 'Cannot move car to another branch while reservation or booking is active',
+        });
+      }
+      car.branchId = targetBranch._id;
+    }
+    if (!targetBranch.isActive) {
+      car.fleetStatus = FLEET_STATUS.INACTIVE;
+      car.isAvailable = false;
+    }
+    car.location = nextLocation;
+    await car.save();
+
+    return res.json({
+      message: 'Car location updated successfully',
+      car: {
+        _id: String(car._id),
+        location: normalizeLocationName(car.location),
+        branchId: String(car.branchId || ''),
+      },
+      sourceBranch: normalizeBranchForClient(sourceBranch.toObject()),
+      targetBranch: normalizeBranchForClient(targetBranch.toObject()),
+    });
+  } catch (error) {
+    console.error('moveCarBranchLocation error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to move car location' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.createBranchLocation = async (req, res) => {
+  try {
+    const branch = await resolveBranchForLocationWrite(req.user, req.body?.branchId);
+    const locationName = normalizeLocationName(req.body?.name);
+    if (!locationName) {
+      return res.status(422).json({ message: 'Location name is required' });
+    }
+
+    const currentLocations = getBranchServiceCities(branch);
+    const existingLocation = findLocationMatch(currentLocations, locationName);
+    if (existingLocation) {
+      return res.status(200).json({
+        message: 'Location already exists for this branch',
+        location: existingLocation,
+        branch: normalizeBranchForClient(branch.toObject()),
+      });
+    }
+
+    const updatedCities = [...new Set([...currentLocations, locationName])];
+    branch.serviceCities = updatedCities;
+    if (!normalizeLocationName(branch.city)) {
+      branch.city = locationName;
+    }
+    await branch.save();
+
+    return res.status(201).json({
+      message: 'Location added successfully',
+      location: locationName,
+      branch: normalizeBranchForClient(branch.toObject()),
+    });
+  } catch (error) {
+    console.error('createBranchLocation error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to add location' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.renameBranchLocation = async (req, res) => {
+  try {
+    const branch = await resolveBranchForLocationWrite(req.user, req.body?.branchId);
+    const currentName = normalizeLocationName(req.body?.currentName);
+    const nextName = normalizeLocationName(req.body?.nextName);
+
+    if (!currentName || !nextName) {
+      return res.status(422).json({ message: 'currentName and nextName are required' });
+    }
+
+    const currentLocations = getBranchServiceCities(branch);
+    const existingCurrentLocation = await resolveExistingBranchLocationName(branch, currentName);
+    if (!existingCurrentLocation) {
+      return res.status(404).json({ message: 'Location not found in selected branch' });
+    }
+
+    const existingNextLocation = findLocationMatch(currentLocations, nextName);
+    if (
+      existingNextLocation &&
+      toLowerCaseKey(existingNextLocation) !== toLowerCaseKey(existingCurrentLocation)
+    ) {
+      return res.status(422).json({ message: 'Target location already exists in selected branch' });
+    }
+
+    const mappedLocations = currentLocations.map((locationName) =>
+      toLowerCaseKey(locationName) === toLowerCaseKey(existingCurrentLocation)
+        ? nextName
+        : locationName,
+    );
+    branch.serviceCities = [...new Set([...mappedLocations, nextName])];
+    if (toLowerCaseKey(branch.city) === toLowerCaseKey(existingCurrentLocation)) {
+      branch.city = nextName;
+    }
+    await branch.save();
+
+    const locationRegex = new RegExp(`^${escapeRegExp(existingCurrentLocation)}$`, 'i');
+    const updateResult = await Car.updateMany(
+      {
+        branchId: branch._id,
+        location: { $regex: locationRegex },
+      },
+      {
+        $set: { location: nextName },
+      },
+    );
+
+    return res.json({
+      message: 'Location updated successfully',
+      branch: normalizeBranchForClient(branch.toObject()),
+      movedCars: Number(updateResult?.modifiedCount || 0),
+    });
+  } catch (error) {
+    console.error('renameBranchLocation error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to update location' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.deleteBranchLocation = async (req, res) => {
+  try {
+    const branchId = req.query?.branchId || req.body?.branchId;
+    const locationName = req.query?.name || req.body?.name;
+    const branch = await resolveBranchForLocationWrite(req.user, branchId);
+    const normalizedLocationName = normalizeLocationName(locationName);
+    if (!normalizedLocationName) {
+      return res.status(422).json({ message: 'Location name is required' });
+    }
+
+    const currentLocations = getBranchServiceCities(branch);
+    const existingLocation = await resolveExistingBranchLocationName(branch, normalizedLocationName);
+    if (!existingLocation) {
+      return res.status(404).json({ message: 'Location not found in selected branch' });
+    }
+
+    const locationRegex = new RegExp(`^${escapeRegExp(existingLocation)}$`, 'i');
+    const carsUsingLocation = await Car.countDocuments({
+      branchId: branch._id,
+      location: { $regex: locationRegex },
+    });
+    if (carsUsingLocation > 0) {
+      return res.status(422).json({
+        message: 'Location has active cars. Move or remove those cars before deleting this location.',
+        carCount: carsUsingLocation,
+      });
+    }
+
+    const updatedLocations = currentLocations.filter(
+      (locationValue) => toLowerCaseKey(locationValue) !== toLowerCaseKey(existingLocation),
+    );
+    branch.serviceCities = updatedLocations;
+    if (toLowerCaseKey(branch.city) === toLowerCaseKey(existingLocation)) {
+      branch.city = updatedLocations[0] || '';
+    }
+    await branch.save();
+
+    return res.json({
+      message: 'Location deleted successfully',
+      branch: normalizeBranchForClient(branch.toObject()),
+    });
+  } catch (error) {
+    console.error('deleteBranchLocation error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to delete location' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.setBranchPrimaryLocation = async (req, res) => {
+  try {
+    const branch = await resolveBranchForLocationWrite(req.user, req.body?.branchId);
+    const locationName = normalizeLocationName(req.body?.name);
+    if (!locationName) {
+      return res.status(422).json({ message: 'Location name is required' });
+    }
+
+    const existingLocation = await resolveExistingBranchLocationName(branch, locationName);
+    if (!existingLocation) {
+      return res.status(404).json({ message: 'Location not found in selected branch' });
+    }
+
+    const branchCities = getBranchServiceCities(branch);
+    if (!findLocationMatch(branchCities, existingLocation)) {
+      branch.serviceCities = [...new Set([...branchCities, existingLocation])];
+    }
+    branch.city = existingLocation;
+    await branch.save();
+
+    return res.json({
+      message: 'Primary location updated successfully',
+      branch: normalizeBranchForClient(branch.toObject()),
+    });
+  } catch (error) {
+    console.error('setBranchPrimaryLocation error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to update primary location' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
 exports.getBranches = async (req, res) => {
   try {
     ensureSuperAdminAccess(req.user);
@@ -2201,13 +3055,63 @@ exports.getBranches = async (req, res) => {
         .lean(),
     ]);
 
+    const branchIds = branches.map((branch) => branch?._id).filter(Boolean);
+    const carUsage = branchIds.length
+      ? await Car.aggregate([
+        { $match: { branchId: { $in: branchIds } } },
+        { $group: { _id: '$branchId', carCount: { $sum: 1 } } },
+      ])
+      : [];
+    const carCountByBranchId = new Map(
+      carUsage.map((entry) => [String(entry?._id || ''), Number(entry?.carCount || 0)]),
+    );
+
     return res.json({
-      branches: branches.map((branch) => normalizeBranchForClient(branch.toObject())),
+      branches: branches.map((branch) => {
+        const normalized = normalizeBranchForClient(branch.toObject());
+        return {
+          ...normalized,
+          carCount: Number(carCountByBranchId.get(String(branch?._id || '')) || 0),
+        };
+      }),
       eligibleManagers: branchAdmins.map(normalizeUserForClient),
     });
   } catch (error) {
     const status = Number(error?.status || 500);
     const message = status >= 500 ? 'Failed to load branches' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.getCarsForBranch = async (req, res) => {
+  try {
+    ensureSuperAdminAccess(req.user);
+
+    const branchId = String(req.query?.branchId || req.body?.branchId || '').trim();
+    if (!branchId) {
+      return res.status(422).json({ message: 'branchId is required' });
+    }
+
+    const branch = await Branch.findById(branchId)
+      .populate('manager', 'firstName lastName email role isBlocked assignedBranches');
+    if (!branch) {
+      return res.status(404).json({ message: 'Branch not found' });
+    }
+
+    const cars = await Car.find({ branchId: branch._id })
+      .select('_id name brand model registrationNumber category location fleetStatus branchId')
+      .populate('branchId', 'branchName branchCode city state serviceCities isActive')
+      .sort({ brand: 1, model: 1 })
+      .lean();
+
+    return res.json({
+      branch: normalizeBranchForClient(branch.toObject()),
+      cars,
+    });
+  } catch (error) {
+    console.error('getCarsForBranch error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to load cars for branch' : error.message;
     return res.status(status).json({ message });
   }
 };
@@ -2261,7 +3165,7 @@ exports.createBranch = async (req, res) => {
       city: requestedCity || serviceCities[0] || '',
       serviceCities,
       state: String(req.body?.state || '').trim(),
-      contactNumber: String(req.body?.contactNumber || '').trim(),
+      contactNumber: parseOptionalTenDigitPhone(req.body?.contactNumber, 'contactNumber'),
       manager: managerId,
       isActive: req.body?.isActive !== undefined ? parseBooleanInput(req.body.isActive, true) : true,
       dynamicPricingEnabled:
@@ -2303,6 +3207,9 @@ exports.updateBranch = async (req, res) => {
       return res.status(404).json({ message: 'Branch not found' });
     }
 
+    const wasBranchActive = Boolean(branch.isActive);
+    let shouldForceCarsInactive = false;
+
     if (req.body?.branchName !== undefined) {
       const branchName = String(req.body.branchName || '').trim();
       if (!branchName) {
@@ -2336,8 +3243,14 @@ exports.updateBranch = async (req, res) => {
       branch.serviceCities = normalizeCityList(req.body.serviceCities);
     }
     if (req.body?.state !== undefined) branch.state = String(req.body.state || '').trim();
-    if (req.body?.contactNumber !== undefined) branch.contactNumber = String(req.body.contactNumber || '').trim();
-    if (req.body?.isActive !== undefined) branch.isActive = parseBooleanInput(req.body.isActive, Boolean(branch.isActive));
+    if (req.body?.contactNumber !== undefined) {
+      branch.contactNumber = parseOptionalTenDigitPhone(req.body.contactNumber, 'contactNumber');
+    }
+    if (req.body?.isActive !== undefined) {
+      const nextIsActive = parseBooleanInput(req.body.isActive, Boolean(branch.isActive));
+      shouldForceCarsInactive = wasBranchActive && !nextIsActive;
+      branch.isActive = nextIsActive;
+    }
     if (req.body?.dynamicPricingEnabled !== undefined) {
       branch.dynamicPricingEnabled = parseBooleanInput(
         req.body.dynamicPricingEnabled,
@@ -2377,14 +3290,85 @@ exports.updateBranch = async (req, res) => {
 
     await branch.save();
 
+    let inactivatedCars = 0;
+    if (shouldForceCarsInactive) {
+      const updateResult = await Car.updateMany(
+        {
+          branchId: branch._id,
+          $or: [{ fleetStatus: { $ne: FLEET_STATUS.INACTIVE } }, { isAvailable: { $ne: false } }],
+        },
+        {
+          $set: {
+            fleetStatus: FLEET_STATUS.INACTIVE,
+            isAvailable: false,
+          },
+        },
+      );
+      inactivatedCars = Number(updateResult?.modifiedCount || 0);
+      if (inactivatedCars > 0) {
+        clearSmartPricingCache();
+      }
+    }
+
     return res.json({
       message: 'Branch updated successfully',
       branch: normalizeBranchForClient(branch.toObject()),
+      inactivatedCars,
     });
   } catch (error) {
     console.error('updateBranch error:', error);
     const status = Number(error?.status || 500);
     const message = status >= 500 ? 'Failed to update branch' : error.message;
+    return res.status(status).json({ message });
+  }
+};
+
+exports.deleteBranch = async (req, res) => {
+  try {
+    ensureSuperAdminAccess(req.user);
+
+    const branchId = String(req.params?.id || '').trim();
+    if (!branchId) {
+      return res.status(422).json({ message: 'branchId is required' });
+    }
+
+    const branch = await Branch.findById(branchId);
+    if (!branch) {
+      return res.status(404).json({ message: 'Branch not found' });
+    }
+
+    const totalBranches = await Branch.countDocuments({});
+    if (totalBranches <= 1) {
+      return res.status(422).json({ message: 'Cannot delete the last branch' });
+    }
+
+    const branchCode = toValidBranchCode(branch?.branchCode || '');
+    if (branchCode === MAIN_BRANCH_CODE) {
+      return res.status(422).json({ message: 'Main branch cannot be deleted' });
+    }
+
+    const linkedCars = await Car.countDocuments({ branchId: branch._id });
+    if (linkedCars > 0) {
+      return res.status(422).json({
+        message: 'Move or remove cars from this branch before deleting',
+      });
+    }
+
+    await User.updateMany(
+      { assignedBranches: String(branch._id) },
+      { $pull: { assignedBranches: String(branch._id) } },
+    );
+
+    await Branch.deleteOne({ _id: branch._id });
+
+    return res.json({
+      message: 'Branch deleted successfully',
+      deletedBranchId: String(branch._id),
+    });
+  } catch (error) {
+    console.error('deleteBranch error:', error);
+    const status = Number(error?.status || 500);
+    const message = status >= 500 ? 'Failed to delete branch' : error.message;
     return res.status(status).json({ message });
   }
 };
@@ -2414,6 +3398,10 @@ exports.transferCarBranch = async (req, res) => {
     }
 
     car.branchId = targetBranch._id;
+    if (!targetBranch.isActive) {
+      car.fleetStatus = FLEET_STATUS.INACTIVE;
+      car.isAvailable = false;
+    }
     await car.save();
     clearSmartPricingCache();
 

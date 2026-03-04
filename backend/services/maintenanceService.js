@@ -4,6 +4,7 @@ const Booking = require('../models/Booking');
 const Maintenance = require('../models/Maintenance');
 const { FLEET_STATUS } = require('../utils/fleetStatus');
 const { resolveFleetStatus, updateCarFleetStatus } = require('./fleetService');
+const { ensureBranchById } = require('./branchService');
 
 const DAYS_7_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -149,6 +150,15 @@ const syncCarFleetStatusFromMaintenance = async (carId, options = {}) => {
   }
 
   const currentStatus = resolveFleetStatus(car);
+  const carBranch = await ensureBranchById(car.branchId);
+  if (carBranch && !carBranch.isActive) {
+    if (currentStatus !== FLEET_STATUS.INACTIVE) {
+      const updatedCar = await updateCarFleetStatus(car._id, FLEET_STATUS.INACTIVE);
+      return { statusChanged: true, car: updatedCar };
+    }
+    return { statusChanged: false, car };
+  }
+
   const rentedNow = await isCarCurrentlyRented(car._id);
   if (rentedNow || currentStatus === FLEET_STATUS.RENTED) {
     return { statusChanged: false, car };

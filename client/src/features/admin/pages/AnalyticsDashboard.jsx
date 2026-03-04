@@ -3,6 +3,7 @@ import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
 import { BarTrendChart, StackedBarTrendChart, TrendLineChart } from '../../../components/ui/AnalyticsCharts';
 import GeoHeatmapMap from '../../../components/ui/GeoHeatmapMap';
+import UniversalCalendarInput from '../../../components/UniversalCalendarInput';
 
 const RANGE_OPTIONS = [
   { key: 'today', label: 'Today' },
@@ -1091,17 +1092,18 @@ const AnalyticsDashboard = () => {
 
         {rangeKey === 'custom' ? (
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
-            <input
-              type="date"
-              value={customStartDate}
-              onChange={(event) => setCustomStartDate(event.target.value)}
-              className="rounded-lg border border-borderColor bg-white px-3 py-2 text-sm"
+            <UniversalCalendarInput
+              mode="single"
+              value={customStartDate || null}
+              onChange={(nextValue) => setCustomStartDate(typeof nextValue === 'string' ? nextValue : '')}
+              placeholder="Start date"
             />
-            <input
-              type="date"
-              value={customEndDate}
-              onChange={(event) => setCustomEndDate(event.target.value)}
-              className="rounded-lg border border-borderColor bg-white px-3 py-2 text-sm"
+            <UniversalCalendarInput
+              mode="single"
+              value={customEndDate || null}
+              onChange={(nextValue) => setCustomEndDate(typeof nextValue === 'string' ? nextValue : '')}
+              minDate={customStartDate || null}
+              placeholder="End date"
             />
             <button
               type="button"

@@ -176,6 +176,11 @@ carSchema.pre("validate", function syncFleetAndMetadata() {
     if (Number.isNaN(parsed.getTime())) return null;
     return parsed;
   };
+  const normalizeCompactText = (value) =>
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const normalizeUpperCodeText = (value) => normalizeCompactText(value).toUpperCase();
   const toNullablePositiveNumber = (value) => {
     if (value === undefined || value === null || value === "") return null;
     const numericValue = Number(value);
@@ -232,9 +237,22 @@ carSchema.pre("validate", function syncFleetAndMetadata() {
   this.pollutionExpiry = toValidDate(this.pollutionExpiry);
   this.lastServiceDate = toValidDate(this.lastServiceDate);
 
-  this.registrationNumber = String(this.registrationNumber || "").trim();
-  this.chassisNumber = String(this.chassisNumber || "").trim();
-  this.engineNumber = String(this.engineNumber || "").trim();
+  this.name = normalizeCompactText(this.name);
+  this.brand = normalizeCompactText(this.brand);
+  this.model = normalizeCompactText(this.model);
+  this.location = normalizeCompactText(this.location);
+  this.registrationNumber = normalizeUpperCodeText(this.registrationNumber).replace(/\s+/g, "");
+  this.chassisNumber = normalizeUpperCodeText(this.chassisNumber);
+  this.engineNumber = normalizeUpperCodeText(this.engineNumber);
+  if (Array.isArray(this.features)) {
+    this.features = [
+      ...new Set(
+        this.features
+          .map((entry) => normalizeCompactText(entry))
+          .filter(Boolean),
+      ),
+    ];
+  }
 });
 
 carSchema.plugin(tenantScopedPlugin);

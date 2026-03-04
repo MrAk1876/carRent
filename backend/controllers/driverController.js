@@ -38,6 +38,8 @@ const parseBooleanInput = (value, fallback = false) => {
   return fallback;
 };
 
+const normalizePhoneDigits = (value) => String(value || '').replace(/\D/g, '');
+
 const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const normalizeDriverForClient = (driver, now = new Date()) => {
@@ -222,7 +224,7 @@ exports.getDrivers = async (req, res) => {
 exports.createDriver = async (req, res) => {
   try {
     const driverName = String(req.body?.driverName || '').trim();
-    const phoneNumber = String(req.body?.phoneNumber || '').trim();
+    const phoneNumber = normalizePhoneDigits(req.body?.phoneNumber);
     const licenseNumber = String(req.body?.licenseNumber || '').trim().toUpperCase();
     const licenseExpiry = toValidDate(req.body?.licenseExpiry);
     const ratingInput =
@@ -234,6 +236,9 @@ exports.createDriver = async (req, res) => {
       return res.status(422).json({
         message: 'driverName, phoneNumber, licenseNumber, and licenseExpiry are required',
       });
+    }
+    if (!/^[0-9]{10}$/.test(phoneNumber)) {
+      return res.status(422).json({ message: 'phoneNumber must be exactly 10 digits' });
     }
 
     if (ratingInput !== null && (!Number.isFinite(ratingInput) || ratingInput < 0 || ratingInput > 5)) {
@@ -302,7 +307,11 @@ exports.updateDriver = async (req, res) => {
       driver.driverName = String(req.body.driverName || '').trim();
     }
     if (req.body?.phoneNumber !== undefined) {
-      driver.phoneNumber = String(req.body.phoneNumber || '').trim();
+      const normalizedPhone = normalizePhoneDigits(req.body.phoneNumber);
+      if (!/^[0-9]{10}$/.test(normalizedPhone)) {
+        return res.status(422).json({ message: 'phoneNumber must be exactly 10 digits' });
+      }
+      driver.phoneNumber = normalizedPhone;
     }
     if (req.body?.licenseNumber !== undefined) {
       driver.licenseNumber = String(req.body.licenseNumber || '').trim().toUpperCase();

@@ -56,6 +56,7 @@ const MyBookings = () => {
   const [error, setError] = useState('');
   const [offersError, setOffersError] = useState('');
   const [reviewsError, setReviewsError] = useState('');
+  const [expandedCardById, setExpandedCardById] = useState({});
 
   const getStatusBadge = (status) => {
     const normalizedStatus = getNormalizedStatusKey(status);
@@ -361,7 +362,7 @@ const MyBookings = () => {
   };
 
   return (
-    <div className="px-6 md:px-16 lg:px-24 xl:px-32 mt-16 max-w-7xl space-y-8">
+    <div className="mx-auto mt-16 w-full max-w-[95rem] space-y-8 px-4 md:px-8 xl:px-12">
       <Title title="My Bookings" subTitle="Track your rentals and negotiation offers" align="left" />
 
       {error && <p className="text-center text-red-500 mt-6">{error}</p>}
@@ -435,14 +436,16 @@ const MyBookings = () => {
               : rentalStage === 'PendingPayment'
               ? 'text-amber-700'
               : 'text-blue-700';
+          const cardId = String(item?._id || '');
+          const isExpanded = Boolean(expandedCardById[cardId]);
 
           return (
-            <div key={item._id} className="grid grid-cols-1 md:grid-cols-4 gap-6 p-6 border rounded-xl bg-white shadow hover:shadow-lg transition">
-              <div className="h-40 overflow-hidden rounded">
+            <div key={item._id} className="grid grid-cols-1 gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md md:grid-cols-[11rem_minmax(0,1fr)_minmax(18rem,22rem)] md:gap-5 md:p-5">
+              <div className="h-40 overflow-hidden rounded-xl border border-borderColor bg-slate-100 md:h-32">
                 <img src={item.car?.image} alt="car" className="w-full h-full object-cover" />
               </div>
 
-              <div className="md:col-span-2">
+              <div className="min-w-0">
                 <h2 className="font-semibold text-lg">
                   {item.car?.brand} {item.car?.model}
                 </h2>
@@ -458,8 +461,8 @@ const MyBookings = () => {
                 <span className="text-xs text-gray-400">{item.type === 'booking' ? 'Booking' : 'Booking Request'}</span>
               </div>
 
-              <div className="flex flex-col items-end justify-between">
-                <div className="flex gap-2">
+              <div className="flex min-w-0 flex-col gap-2 md:items-end">
+                <div className="flex flex-wrap gap-2 md:justify-end">
                   {item.type === 'booking' && (
                     <span className={`px-3 py-1 text-xs rounded-full ${getStatusBadge(item.bookingStatus)}`}>
                       {item.bookingStatus}
@@ -511,31 +514,48 @@ const MyBookings = () => {
                   </div>
                 ) : null}
 
+                {item.type === 'booking' ? (
+                  <p className="mt-1 text-2xl font-bold text-primary md:text-right">
+                    {currency}
+                    {finalAmount}
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedCardById((previous) => ({
+                      ...previous,
+                      [cardId]: !previous[cardId],
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-borderColor bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-slate-50 md:w-auto"
+                >
+                  {isExpanded ? 'Show Less' : 'View Details'}
+                </button>
+
+              </div>
+
+              {isExpanded ? (
+              <div className="md:col-span-3 grid grid-cols-1 gap-3 items-start xl:grid-cols-2">
               {item.bargain ? (
-                <p className="text-sm mt-1 text-gray-500">
+                <p className="text-sm text-gray-600">
                   Negotiation: <span className="font-medium">{item.bargain.status}</span>
                 </p>
               ) : null}
 
               {item.type === 'booking' && item.bargain?.adminCounterPrice ? (
-                <p className="text-sm mt-1 text-gray-500">
+                <p className="text-sm text-gray-600">
                   Admin Counter: <span className="font-medium">{currency}{item.bargain.adminCounterPrice}</span>
                 </p>
               ) : null}
 
               {item.type === 'booking' && item.bargain ? (
-                <p className="text-xs text-gray-400 mt-1">Attempts: {item.bargain.userAttempts || 0}/3</p>
+                <p className="text-xs text-gray-400">Attempts: {item.bargain.userAttempts || 0}/3</p>
               ) : null}
 
-              {item.type === 'booking' && (
-                <p className="text-xl font-bold text-primary">
-                  {currency}
-                  {finalAmount}
-                </p>
-              )}
-
               {item.type === 'request' && (
-                <div className="w-full mt-2 p-2 rounded border border-borderColor bg-light text-xs text-gray-600 space-y-1">
+                <div className="w-full rounded-xl border border-borderColor bg-light p-3 text-sm text-gray-600 space-y-1">
                   <p>
                     Final Amount:{' '}
                     <span className="font-semibold">
@@ -579,7 +599,7 @@ const MyBookings = () => {
               )}
 
               {item.type === 'booking' && (
-                <div className="w-full mt-2 p-2 rounded border border-borderColor bg-light text-xs text-gray-600 space-y-1">
+                <div className="w-full rounded-xl border border-borderColor bg-light p-3 text-sm text-gray-600 space-y-1">
                   <p>
                     Payment Status: <span className="font-semibold">{item.paymentStatus || 'Unpaid'}</span>
                   </p>
@@ -716,7 +736,7 @@ const MyBookings = () => {
               )}
 
               {item.type === 'booking' && reviewsByBookingId[item._id] && (
-                <div className="w-full mt-2 p-2 rounded border border-borderColor bg-light">
+                <div className="w-full rounded-xl border border-borderColor bg-light p-3">
                   {!editingReviewByBookingId[item._id] ? (
                     <>
                       <p className="text-xs font-medium text-gray-700">
@@ -797,7 +817,7 @@ const MyBookings = () => {
               )}
 
               {canReviewBooking(item) && (
-                <div className="w-full mt-2 p-2 rounded border border-borderColor space-y-2">
+                <div className="w-full rounded-xl border border-borderColor p-3 space-y-2">
                   <p className="text-xs font-medium text-gray-700">Rate this car</p>
                   <select
                     value={reviewDraftByBookingId[item._id]?.rating || '5'}
@@ -847,7 +867,7 @@ const MyBookings = () => {
                 isNegotiableBooking(item) &&
                 item.bargain &&
                 !['LOCKED', 'ADMIN_COUNTERED', 'ACCEPTED'].includes(item.bargain.status) && (
-                  <div className="w-full mt-2 space-y-2">
+                  <div className="w-full space-y-2">
                     <input
                       type="number"
                       placeholder="Offer a new price"
@@ -868,7 +888,7 @@ const MyBookings = () => {
               {item.type === 'booking' &&
                 isNegotiableBooking(item) &&
                 item.bargain?.status === 'ADMIN_COUNTERED' && (
-                  <div className="w-full mt-2 flex gap-2 justify-end">
+                  <div className="w-full flex flex-wrap gap-2 xl:justify-end">
                     <button
                       disabled={loadingActionId === item._id}
                       onClick={() => respondToBookingCounter(item._id, 'accept')}
@@ -887,7 +907,7 @@ const MyBookings = () => {
                 )}
 
               {item.type === 'request' && item.status === 'pending' && (
-                <div className="w-full mt-2 space-y-2">
+                <div className="w-full space-y-2">
                   {!isAdvancePaidStatus(item.paymentStatus) ? (
                     <>
                       <select
@@ -956,7 +976,13 @@ const MyBookings = () => {
                   Cancel Booking
                 </button>
               )}
-            </div>
+              </div>
+              ) : (
+                <div className="md:col-span-3 rounded-xl border border-borderColor bg-slate-50 px-3 py-2 text-xs text-gray-600">
+                  Showing required details only. Click <span className="font-semibold">View Details</span> to see payment,
+                  inspection, review, and action sections.
+                </div>
+              )}
             </div>
           );
         })}

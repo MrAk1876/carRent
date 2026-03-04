@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Booking Pickup Reminder</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #dbe4ee;border-radius:12px;overflow:hidden;">
+          <tr>
+            <td style="background:#1e40af;padding:18px 22px;">
+              <h1 style="margin:0;font-size:20px;line-height:1.2;color:#ffffff;">CarRental</h1>
+              <p style="margin:6px 0 0;color:#bfdbfe;font-size:13px;">Booking Reminder</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 22px;">
+              <h2 style="margin:0 0 10px;font-size:20px;color:#0f172a;">Pickup Reminder ({{reminderHours}} Hour{{hoursSuffix}})</h2>
+              <p style="margin:0 0 14px;color:#334155;font-size:14px;">Hi {{userName}}, your booking is scheduled soon.</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #dbe4ee;border-radius:8px;overflow:hidden;">
+                <tr>
+                  <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc;color:#475569;font-size:13px;width:42%;">Car</td>
+                  <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:600;">{{carName}}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc;color:#475569;font-size:13px;">Pickup Time</td>
+                  <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:600;">{{pickupTime}}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 12px;background:#f8fafc;color:#475569;font-size:13px;">Pickup Location</td>
+                  <td style="padding:10px 12px;color:#0f172a;font-size:13px;font-weight:600;">{{pickupLocation}}</td>
+                </tr>
+              </table>
+              <p style="margin:14px 0 0;color:#334155;font-size:13px;">Booking ID: {{bookingId}}</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

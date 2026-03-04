@@ -2,8 +2,8 @@ const Offer = require('../models/Offer');
 const Car = require('../models/Car');
 const Request = require('../models/Request');
 const { calculateAdvanceBreakdown, isAdvancePaidStatus } = require('../utils/paymentUtils');
+const { resolveAvailabilityConflict } = require('../services/conflictResolver');
 const { normalizeFleetStatus, isFleetBookable, FLEET_STATUS } = require('../utils/fleetStatus');
-const { tryReserveCar, updateCarFleetStatus, releaseCarIfUnblocked } = require('../services/fleetService');
 const { syncCarFleetStatusFromMaintenance } = require('../services/maintenanceService');
 const { assertCarBranchActive } = require('../services/branchService');
 const { applyCarScopeToQuery, assertCarInScope } = require('../services/adminScopeService');
@@ -110,6 +110,27 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     return { error: { status: 422, message: 'Car is no longer available' } };
   }
 
+  const availabilityConflict = await resolveAvailabilityConflict({
+    carId,
+    startDate: normalizedPickupDateTime,
+    endDate: normalizedDropDateTime,
+  });
+  if (!availabilityConflict.valid) {
+    const selfReservationOnly =
+      Boolean(existingPendingRequest) && String(availabilityConflict.conflictReason || '').toUpperCase() === 'RESERVED';
+    if (!selfReservationOnly) {
+      return {
+        error: {
+          status: 422,
+          message: 'Selected dates are already booked or blocked.',
+          conflictReason: availabilityConflict.conflictReason || '',
+          conflictingDates:
+            availabilityConflict.primaryConflictDates || availabilityConflict.conflictingDates || [],
+        },
+      };
+    }
+  }
+
   const days = getTimeBasedBillingDays(normalizedPickupDateTime, normalizedDropDateTime);
   if (!Number.isFinite(days) || days <= 0) {
     return { error: { status: 422, message: 'Invalid booking duration' } };
@@ -176,7 +197,6 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
       existingPendingRequest.remainingAmount = breakdown.remainingAmount;
     }
     await existingPendingRequest.save();
-    await updateCarFleetStatus(carId, FLEET_STATUS.RESERVED);
     if (!shouldKeepPaidState) {
       queuePendingPaymentEmailForRequest(existingPendingRequest);
     }
@@ -184,44 +204,33 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     return { request: existingPendingRequest, finalAmount };
   }
 
-  const reservedCar = await tryReserveCar(carId);
-  if (!reservedCar) {
-    return { error: { status: 409, message: 'Vehicle just became unavailable. Please try again.' } };
-  }
-
-  let request;
-  try {
-    request = await Request.create({
-      user: userId,
-      car: carId,
-      branchId: branch?._id || null,
-      fromDate: normalizedPickupDateTime,
-      toDate: normalizedDropDateTime,
-      pickupDateTime: normalizedPickupDateTime,
-      dropDateTime: normalizedDropDateTime,
-      gracePeriodHours: 1,
-      days,
-      totalAmount: breakdown.finalAmount,
-      lockedPerDayPrice: pricingAmounts.lockedPerDayPrice,
-      basePerDayPrice: pricingAmounts.basePerDayPrice,
-      pricingBaseAmount: pricingAmounts.pricingBaseAmount,
-      pricingLockedAmount: roundCurrency(finalAmount),
-      priceSource: pricingSnapshot?.priceSource || 'Base',
-      priceAdjustmentPercent: Number(pricingSnapshot?.priceAdjustmentPercent || 0),
-      finalAmount: breakdown.finalAmount,
-      advanceAmount: breakdown.advanceRequired,
-      advanceRequired: breakdown.advanceRequired,
-      advancePaid: 0,
-      remainingAmount: breakdown.remainingAmount,
-      paymentStatus: 'UNPAID',
-      paymentMethod: 'NONE',
-      bargain: lockedBargain,
-      status: 'pending',
-    });
-  } catch (requestCreationError) {
-    await releaseCarIfUnblocked(carId);
-    throw requestCreationError;
-  }
+  const request = await Request.create({
+    user: userId,
+    car: carId,
+    branchId: branch?._id || null,
+    fromDate: normalizedPickupDateTime,
+    toDate: normalizedDropDateTime,
+    pickupDateTime: normalizedPickupDateTime,
+    dropDateTime: normalizedDropDateTime,
+    gracePeriodHours: 1,
+    days,
+    totalAmount: breakdown.finalAmount,
+    lockedPerDayPrice: pricingAmounts.lockedPerDayPrice,
+    basePerDayPrice: pricingAmounts.basePerDayPrice,
+    pricingBaseAmount: pricingAmounts.pricingBaseAmount,
+    pricingLockedAmount: roundCurrency(finalAmount),
+    priceSource: pricingSnapshot?.priceSource || 'Base',
+    priceAdjustmentPercent: Number(pricingSnapshot?.priceAdjustmentPercent || 0),
+    finalAmount: breakdown.finalAmount,
+    advanceAmount: breakdown.advanceRequired,
+    advanceRequired: breakdown.advanceRequired,
+    advancePaid: 0,
+    remainingAmount: breakdown.remainingAmount,
+    paymentStatus: 'UNPAID',
+    paymentMethod: 'NONE',
+    bargain: lockedBargain,
+    status: 'pending',
+  });
   queuePendingPaymentEmailForRequest(request);
 
   return { request, finalAmount };
@@ -263,6 +272,19 @@ exports.createOffer = async (req, res) => {
     const { days, amount: originalPrice } = calculateTimeBasedRentalAmount(fromDate, toDate, effectivePerDayPrice);
     if (!Number.isFinite(days) || days <= 0) {
       return res.status(422).json({ message: 'Invalid booking duration' });
+    }
+
+    const availabilityConflict = await resolveAvailabilityConflict({
+      carId,
+      startDate: fromDate,
+      endDate: toDate,
+    });
+    if (!availabilityConflict.valid) {
+      return res.status(422).json({
+        message: 'Selected dates are already booked or blocked.',
+        conflictReason: availabilityConflict.conflictReason || '',
+        conflictingDates: availabilityConflict.primaryConflictDates || availabilityConflict.conflictingDates || [],
+      });
     }
 
     const existingOpenOffer = await Offer.findOne({

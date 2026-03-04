@@ -5,11 +5,13 @@ import { isAdmin, isLoggedIn } from '../utils/auth';
 import MakeOfferForm from '../features/offers/components/MakeOfferForm';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import ScrollReveal from '../components/ui/ScrollReveal';
-import { getErrorMessage } from '../api';
+import API, { getErrorMessage } from '../api';
 import { getCarById } from '../services/carService';
 import { getCarReviews } from '../services/reviewService';
 import { createBookingRequest } from '../services/requestService';
 import useNotify from '../hooks/useNotify';
+import UniversalCalendarInput from '../components/UniversalCalendarInput';
+import { normalizeAvailabilityMap } from '../utils/dateUtils';
 import {
   calculateAdvanceBreakdown,
   calculateTimeBasedRentalAmount,
@@ -214,6 +216,9 @@ const CarDetail = () => {
   const [dropPeriod, setDropPeriod] = useState(() => getDefaultTimeParts().period);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState('');
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState('');
+  const [bookingAvailabilityMap, setBookingAvailabilityMap] = useState({});
   const [offerSuccessMsg, setOfferSuccessMsg] = useState('');
   const [activeSubscription, setActiveSubscription] = useState(null);
   const [useSubscription, setUseSubscription] = useState(false);
@@ -265,6 +270,11 @@ const CarDetail = () => {
   }, [loadDetailData]);
 
   const todayDate = useMemo(() => toLocalDateInputValue(new Date()), []);
+  const availabilityToDate = useMemo(() => {
+    const horizon = new Date();
+    horizon.setDate(horizon.getDate() + 180);
+    return toLocalDateInputValue(horizon);
+  }, []);
   const pickupDateTimeIso = useMemo(
     () => buildIsoDateTime(pickupDate, pickupHour, pickupMinute, pickupPeriod),
     [pickupDate, pickupHour, pickupMinute, pickupPeriod],
@@ -326,6 +336,49 @@ const CarDetail = () => {
   );
   const advancePercent = useMemo(() => Math.round(quoteBreakdown.advanceRate * 100), [quoteBreakdown.advanceRate]);
   const features = useMemo(() => parseCarFeatures(car?.features), [car?.features]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAvailability = async () => {
+      if (!car?._id) {
+        setBookingAvailabilityMap({});
+        setAvailabilityError('');
+        return;
+      }
+
+      try {
+        setAvailabilityLoading(true);
+        setAvailabilityError('');
+
+        const response = await API.get(`/cars/${car._id}/availability`, {
+          params: {
+            from: todayDate,
+            to: availabilityToDate,
+          },
+          showErrorToast: false,
+          dedupe: false,
+        });
+
+        if (cancelled) return;
+        setBookingAvailabilityMap(normalizeAvailabilityMap(response?.data || null));
+      } catch (error) {
+        if (cancelled) return;
+        setBookingAvailabilityMap({});
+        setAvailabilityError(getErrorMessage(error, 'Live availability timeline is temporarily unavailable.'));
+      } finally {
+        if (!cancelled) {
+          setAvailabilityLoading(false);
+        }
+      }
+    };
+
+    loadAvailability();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [availabilityToDate, car?._id, todayDate]);
 
   const averageRating = useMemo(() => {
     if (!reviews.length) return 0;
@@ -658,6 +711,13 @@ const CarDetail = () => {
                 {unavailabilityMessage}
               </div>
             ) : null}
+            {!admin && vehicleBookable ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {availabilityLoading
+                  ? 'Loading date-wise availability...'
+                  : availabilityError || 'Availability states are shown directly in the booking calendar.'}
+              </div>
+            ) : null}
 
             <div className="rounded-lg border border-borderColor bg-light p-3 text-xs text-gray-500">
               Time-based billing: 24h = 1 day, under 12h extra = 0.5 day, 12h+ extra = 1 day.
@@ -666,21 +726,28 @@ const CarDetail = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3">
               <div>
                 <label className="text-sm text-gray-600">Pickup Date</label>
-                <input
-                  type="date"
-                  value={pickupDate}
-                  min={todayDate}
-                  onChange={(event) => {
-                    const nextPickupDate = event.target.value;
-                    setPickupDate(nextPickupDate);
-                    if (dropDate && nextPickupDate > dropDate) {
-                      setDropDate(nextPickupDate);
-                    }
-                  }}
-                  className="border border-borderColor px-3 py-2 rounded-lg w-full mt-1"
-                  disabled={admin || !vehicleBookable}
-                  required
-                />
+                <div className="mt-1">
+                  <UniversalCalendarInput
+                    mode="single"
+                    variant="availability"
+                    appearance="booking"
+                    value={pickupDate || null}
+                    minDate={todayDate}
+                    disablePast
+                    availabilityMap={bookingAvailabilityMap}
+                    disableUnavailable
+                    showLegend={false}
+                    disabled={admin || !vehicleBookable}
+                    placeholder="Select pickup date"
+                    onChange={(nextValue) => {
+                      const nextPickupDate = typeof nextValue === 'string' ? nextValue : '';
+                      setPickupDate(nextPickupDate);
+                      if (dropDate && nextPickupDate && nextPickupDate > dropDate) {
+                        setDropDate(nextPickupDate);
+                      }
+                    }}
+                  />
+                </div>
               </div>
 
               <div>
@@ -727,15 +794,22 @@ const CarDetail = () => {
 
               <div>
                 <label className="text-sm text-gray-600">Drop Date</label>
-                <input
-                  type="date"
-                  value={dropDate}
-                  min={pickupDate || todayDate}
-                  onChange={(event) => setDropDate(event.target.value)}
-                  disabled={admin || !vehicleBookable || !pickupDate}
-                  className="border border-borderColor px-3 py-2 rounded-lg w-full mt-1"
-                  required
-                />
+                <div className="mt-1">
+                  <UniversalCalendarInput
+                    mode="single"
+                    variant="availability"
+                    appearance="booking"
+                    value={dropDate || null}
+                    minDate={pickupDate || todayDate}
+                    disablePast
+                    availabilityMap={bookingAvailabilityMap}
+                    disableUnavailable
+                    showLegend={false}
+                    disabled={admin || !vehicleBookable || !pickupDate}
+                    placeholder="Select drop date"
+                    onChange={(nextValue) => setDropDate(typeof nextValue === 'string' ? nextValue : '')}
+                  />
+                </div>
               </div>
 
               <div>

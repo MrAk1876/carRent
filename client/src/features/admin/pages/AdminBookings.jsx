@@ -449,7 +449,7 @@ const AdminBookings = () => {
 
       {errorMsg && <p className="mt-4 text-sm text-red-500">{errorMsg}</p>}
 
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4 max-w-6xl">
+      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6 max-w-[92rem]">
         <div className="rounded-xl border border-borderColor bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-wide text-gray-500">Active Rentals</p>
           <p className="mt-2 text-2xl font-semibold text-gray-800">{stats.active}</p>
@@ -480,7 +480,7 @@ const AdminBookings = () => {
         </div>
       </div>
 
-      <div className="mt-5 max-w-6xl flex flex-col gap-3">
+      <div className="mt-5 max-w-[92rem] flex flex-col gap-3">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="text-xs text-gray-500">Filter rentals by branch and stage</div>
           <select
@@ -524,7 +524,7 @@ const AdminBookings = () => {
       <div className="admin-section-scroll-shell mt-6">
         <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
         <div className="admin-section-scroll">
-          <div className="space-y-4 max-w-6xl">
+          <div className="space-y-4 max-w-[92rem]">
             {filteredBookings.length === 0 && (
               <div className="rounded-xl border border-borderColor bg-white p-8 text-center text-gray-500">
                 No rentals found.
@@ -614,14 +614,14 @@ const AdminBookings = () => {
                       : 'border-borderColor'
                   }`}
                 >
-                  <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_auto] gap-5">
-                    <div className="flex gap-4">
+                  <div className="grid grid-cols-1 gap-5 items-start xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(20rem,22rem)]">
+                    <div className="min-w-0 grid grid-cols-1 gap-4 sm:grid-cols-[7rem_minmax(0,1fr)]">
                       <img
                         src={booking.car?.image}
                         alt="car"
-                        className="w-28 h-20 object-cover rounded-lg border border-borderColor"
+                        className="h-20 w-full rounded-lg border border-borderColor object-cover sm:w-28"
                       />
-                      <div>
+                      <div className="min-w-0">
                         <h3 className="font-semibold text-lg text-gray-800">
                           {booking.car?.brand} {booking.car?.model}
                         </h3>
@@ -710,7 +710,7 @@ const AdminBookings = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0 grid grid-cols-2 gap-3 text-sm">
                       <div className="rounded-lg bg-light p-3">
                         <p className="text-xs text-gray-500">Total</p>
                         <p className="font-semibold text-gray-800">
@@ -766,7 +766,7 @@ const AdminBookings = () => {
                       </div>
                     </div>
 
-                    <div className="flex flex-col items-stretch gap-2 min-w-45">
+                    <div className="flex min-w-0 flex-col items-stretch gap-2 xl:col-span-2 2xl:col-span-1 2xl:min-w-[20rem]">
                       <div className="rounded-lg bg-light p-3 text-sm">
                         <p className="text-xs text-gray-500">Negotiation</p>
                         <p className="font-semibold text-gray-800">{booking.bargain?.status || 'NONE'}</p>
@@ -823,7 +823,7 @@ const AdminBookings = () => {
 
                               return (
                                 <option key={suggestionId} value={suggestionId} disabled={suggestionDisabled}>
-                                  {`${suggestionName}${suffix} • ${suggestionPhone || 'N/A'} • Trips ${suggestionTrips}`}
+                                  {`${suggestionName}${suffix} - ${suggestionPhone || 'N/A'} - Trips ${suggestionTrips}`}
                                 </option>
                               );
                             })}

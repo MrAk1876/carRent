@@ -45,7 +45,7 @@ import car_image3 from './car_image3.png';
 import car_image4 from './car_image4.png';
 import booking_icon from './booking_icon.svg';
 import booking_colored_icon from './booking_colored_icon.svg';
-import { PERMISSIONS } from '../utils/rbac';
+import { PERMISSIONS, ROLES } from '../utils/rbac';
 
 export const assets = {
   logo,
@@ -163,12 +163,20 @@ export const ownerMenuLinks = [
     icon: dashboardIcon,
     coloredIcon: dashboardIconColored,
     permission: PERMISSIONS.VIEW_ANALYTICS,
+    roles: [ROLES.PLATFORM_SUPER_ADMIN, ROLES.SUPER_ADMIN, ROLES.BRANCH_ADMIN, ROLES.FINANCE_MANAGER],
   },
   {
     name: 'Manage Bookings',
     path: '/owner/manage-bookings',
     icon: listIcon,
     coloredIcon: listIconColored,
+    permission: PERMISSIONS.MANAGE_BOOKINGS,
+  },
+  {
+    name: 'Auto Messages',
+    path: '/owner/auto-messages',
+    icon: cautionIcon,
+    coloredIcon: cautionIconColored,
     permission: PERMISSIONS.MANAGE_BOOKINGS,
   },
   {
@@ -233,6 +241,22 @@ export const ownerMenuLinks = [
     icon: location_icon,
     coloredIcon: location_icon_colored,
     permission: PERMISSIONS.MANAGE_ROLES,
+  },
+  {
+    name: 'Locations',
+    path: '/owner/locations',
+    icon: location_icon,
+    coloredIcon: location_icon_colored,
+    permission: PERMISSIONS.VIEW_ANALYTICS,
+    roles: [ROLES.SUPER_ADMIN, ROLES.BRANCH_ADMIN],
+  },
+  {
+    name: 'Categories',
+    path: '/owner/categories',
+    icon: listIcon,
+    coloredIcon: listIconColored,
+    permission: PERMISSIONS.MANAGE_FLEET,
+    roles: [ROLES.SUPER_ADMIN],
   },
 ];
 

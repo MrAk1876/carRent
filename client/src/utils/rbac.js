@@ -8,6 +8,9 @@ export const ROLES = Object.freeze({
   USER: 'User',
 });
 
+// Backward-compatible alias for older imports that expect `ROLE`.
+export const ROLE = ROLES;
+
 export const PERMISSIONS = Object.freeze({
   MANAGE_BOOKINGS: 'MANAGE_BOOKINGS',
   PROCESS_REFUNDS: 'PROCESS_REFUNDS',

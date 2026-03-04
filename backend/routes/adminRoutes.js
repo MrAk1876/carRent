@@ -30,8 +30,23 @@ const {
   getRoleManagementData,
   updateUserRole,
   getBranchOptions,
+  getCarCategories,
+  getCarsForCategory,
+  moveCarCategory,
+  getBranchLocations,
   getBranches,
+  getCarsForBranch,
   createBranch,
+  deleteBranch,
+  createCarCategory,
+  renameCarCategory,
+  deleteCarCategory,
+  getCarsForBranchLocation,
+  moveCarBranchLocation,
+  createBranchLocation,
+  renameBranchLocation,
+  deleteBranchLocation,
+  setBranchPrimaryLocation,
   updateBranch,
   updateBranchDynamicPricing,
   transferCarBranch,
@@ -92,9 +107,64 @@ router.get(
   requireAnyPermission(PERMISSIONS.VIEW_ANALYTICS, PERMISSIONS.VIEW_ALL_BOOKINGS, PERMISSIONS.MANAGE_FLEET),
   getBranchOptions,
 );
+router.get(
+  '/categories',
+  protect,
+  requireAnyPermission(PERMISSIONS.MANAGE_FLEET, PERMISSIONS.VIEW_ANALYTICS),
+  getCarCategories,
+);
+router.get('/categories/cars', protect, requirePermission(PERMISSIONS.MANAGE_FLEET), getCarsForCategory);
+router.patch('/categories/cars/move', protect, requirePermission(PERMISSIONS.MANAGE_FLEET), moveCarCategory);
+router.post('/categories', protect, requirePermission(PERMISSIONS.MANAGE_FLEET), createCarCategory);
+router.put('/categories', protect, requirePermission(PERMISSIONS.MANAGE_FLEET), renameCarCategory);
+router.delete('/categories', protect, requirePermission(PERMISSIONS.MANAGE_FLEET), deleteCarCategory);
 router.get('/branches', protect, requirePermission(PERMISSIONS.MANAGE_ROLES), getBranches);
+router.get('/branches/cars', protect, requirePermission(PERMISSIONS.MANAGE_ROLES), getCarsForBranch);
 router.post('/branches', protect, requirePermission(PERMISSIONS.MANAGE_ROLES), createBranch);
 router.put('/branches/:id', protect, requirePermission(PERMISSIONS.MANAGE_ROLES), updateBranch);
+router.delete('/branches/:id', protect, requirePermission(PERMISSIONS.MANAGE_ROLES), deleteBranch);
+router.get(
+  '/locations',
+  protect,
+  requireAnyPermission(PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_ANALYTICS),
+  getBranchLocations,
+);
+router.get(
+  '/locations/cars',
+  protect,
+  requireAnyPermission(PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_ANALYTICS),
+  getCarsForBranchLocation,
+);
+router.patch(
+  '/locations/cars/move',
+  protect,
+  requireAnyPermission(PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_ANALYTICS),
+  moveCarBranchLocation,
+);
+router.post(
+  '/locations',
+  protect,
+  requireAnyPermission(PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_ANALYTICS),
+  createBranchLocation,
+);
+router.put(
+  '/locations',
+  protect,
+  requireAnyPermission(PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_ANALYTICS),
+  renameBranchLocation,
+);
+router.patch(
+  '/locations/primary',
+  protect,
+  requireAnyPermission(PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_ANALYTICS),
+  setBranchPrimaryLocation,
+);
+router.delete(
+  '/locations',
+  protect,
+  requireAnyPermission(PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_ANALYTICS),
+  deleteBranchLocation,
+);
 router.patch('/branches/:id/dynamic-pricing', protect, requirePermission(PERMISSIONS.MANAGE_FLEET), updateBranchDynamicPricing);
 router.post('/cars/:id/maintenance', protect, requirePermission(PERMISSIONS.MANAGE_MAINTENANCE), addCarMaintenance);
 router.patch('/maintenance/:id/complete', protect, requirePermission(PERMISSIONS.MANAGE_MAINTENANCE), completeCarMaintenance);

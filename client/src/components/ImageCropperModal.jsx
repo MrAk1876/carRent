@@ -24,8 +24,8 @@ const ImageCropperModal = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-white p-4 rounded-lg w-[min(92vw,360px)]">
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-3 sm:p-4 modal-backdrop-enter">
+      <div className="bg-white p-4 rounded-lg w-[min(92vw,360px)] modal-panel-enter">
         <div className="relative w-full h-55 sm:h-65">
           <Cropper
             image={imageSrc}

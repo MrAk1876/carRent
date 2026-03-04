@@ -4,6 +4,7 @@ const path = require('path');
 const connectDB = require('./config/db');
 const { bootstrapBranchSystem } = require('./services/branchService');
 const { bootstrapTenantSystem } = require('./services/tenantService');
+const { startReminderScheduler } = require('./services/reminderSchedulerService');
 const { runWithTenantContext } = require('./services/tenantContextService');
 const { initializeTenantContext } = require('./middleware/tenantMiddleware');
 const userRoutes = require('./routes/userRoutes');
@@ -43,6 +44,7 @@ const ensureDbConnection = () => {
   if (dbConnected) return;
   connectDB();
   dbConnected = true;
+  startReminderScheduler({ runOnStart: true });
   bootstrapTenantSystem()
     .then((defaultTenant) =>
       runWithTenantContext(
@@ -71,7 +73,7 @@ const createApp = (options = {}) => {
         origin: isAllowed,
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-code'],
       });
     }),
   );
@@ -112,7 +114,15 @@ const createApp = (options = {}) => {
   app.use('/api/subscriptions', require('./routes/subscriptionRoutes'));
   app.use('/api/tenant', require('./routes/tenantRoutes'));
   app.use('/api/platform', require('./routes/platformRoutes'));
+  app.use('/api', require('./routes/availabilityRoutes'));
+  app.use('/api', require('./routes/bookingValidationRoutes'));
+  app.use('/api', require('./routes/messageRoutes'));
+  app.use('/api', require('./routes/notificationRoutes'));
+  app.use('/api', require('./routes/aiRoutes'));
+  app.use('/api', require('./routes/pushRoutes'));
   app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/admin', require('./routes/autoMessageRoutes'));
+  app.use('/api/admin', require('./routes/fleetAvailabilityRoutes'));
   app.use('/api/user', userRoutes);
 
   return app;

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
 import useNotify from '../../../hooks/useNotify';
+import UniversalCalendarInput from '../../../components/UniversalCalendarInput';
 
 const STATUS_FILTERS = ['all', 'Available', 'Assigned', 'Inactive'];
 
@@ -30,6 +31,7 @@ const toDateLabel = (value) => {
 };
 
 const normalizeText = (value) => String(value || '').trim().toLowerCase();
+const normalizePhoneDigits = (value) => String(value || '').replace(/\D/g, '').slice(0, 10);
 
 const statusClassMap = {
   Available: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -136,7 +138,7 @@ const ManageDrivers = () => {
     setEditingId(String(driver?._id || ''));
     setDraft({
       driverName: String(driver?.driverName || ''),
-      phoneNumber: String(driver?.phoneNumber || ''),
+      phoneNumber: normalizePhoneDigits(driver?.phoneNumber),
       licenseNumber: String(driver?.licenseNumber || ''),
       licenseExpiry: toDateInputValue(driver?.licenseExpiry),
       branchId,
@@ -150,7 +152,7 @@ const ManageDrivers = () => {
   const submitDriver = async () => {
     const payload = {
       driverName: String(draft.driverName || '').trim(),
-      phoneNumber: String(draft.phoneNumber || '').trim(),
+      phoneNumber: normalizePhoneDigits(draft.phoneNumber),
       licenseNumber: String(draft.licenseNumber || '').trim(),
       licenseExpiry: String(draft.licenseExpiry || '').trim(),
       branchId: String(draft.branchId || '').trim() || undefined,
@@ -159,6 +161,10 @@ const ManageDrivers = () => {
 
     if (!payload.driverName || !payload.phoneNumber || !payload.licenseNumber || !payload.licenseExpiry) {
       notify.error('Name, phone, license number, and license expiry are required');
+      return;
+    }
+    if (!/^[0-9]{10}$/.test(payload.phoneNumber)) {
+      notify.error('Phone number must be exactly 10 digits');
       return;
     }
 
@@ -245,9 +251,13 @@ const ManageDrivers = () => {
           />
           <input
             type="text"
-            placeholder="Phone number"
+            placeholder="Phone number (10 digits)"
             value={draft.phoneNumber}
-            onChange={(event) => setDraft((previous) => ({ ...previous, phoneNumber: event.target.value }))}
+            onChange={(event) =>
+              setDraft((previous) => ({ ...previous, phoneNumber: normalizePhoneDigits(event.target.value) }))
+            }
+            inputMode="numeric"
+            maxLength={10}
             className="rounded-lg border border-borderColor bg-white px-3 py-2 text-sm"
           />
           <input
@@ -257,11 +267,13 @@ const ManageDrivers = () => {
             onChange={(event) => setDraft((previous) => ({ ...previous, licenseNumber: event.target.value }))}
             className="rounded-lg border border-borderColor bg-white px-3 py-2 text-sm uppercase"
           />
-          <input
-            type="date"
-            value={draft.licenseExpiry}
-            onChange={(event) => setDraft((previous) => ({ ...previous, licenseExpiry: event.target.value }))}
-            className="rounded-lg border border-borderColor bg-white px-3 py-2 text-sm"
+          <UniversalCalendarInput
+            mode="single"
+            value={draft.licenseExpiry || null}
+            onChange={(nextValue) =>
+              setDraft((previous) => ({ ...previous, licenseExpiry: typeof nextValue === 'string' ? nextValue : '' }))
+            }
+            placeholder="License expiry"
           />
           <select
             value={draft.branchId}

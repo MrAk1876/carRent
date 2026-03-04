@@ -3,6 +3,10 @@ import { assets, menuLinks } from '../assets/assets';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { isAdmin, isLoggedIn } from '../utils/auth';
 import ThemeToggle from './ThemeToggle';
+import { Dialog, DialogContent } from '@mui/material';
+import AdminMessagingDashboard from './admin/AdminMessagingDashboard';
+import NotificationBell from './notifications/NotificationBell';
+import UserChatWidget from './chat/UserChatWidget';
 
 const desktopLinkClass = ({ isActive }) =>
   `px-3 py-2 rounded-lg text-sm leading-tight whitespace-nowrap transition-all ${
@@ -21,6 +25,7 @@ const Navbar = ({ setShowLogin }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
 
   const loggedIn = isLoggedIn();
@@ -51,6 +56,22 @@ const Navbar = ({ setShowLogin }) => {
     const query = new URLSearchParams(location.search).get('q') || '';
     setSearchText(query);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!admin) return;
+    const query = new URLSearchParams(location.search);
+    if (query.get('chat') !== 'open') return;
+    setChatOpen(true);
+    query.delete('chat');
+    const nextQuery = query.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextQuery ? `?${nextQuery}` : '',
+      },
+      { replace: true },
+    );
+  }, [admin, location.pathname, location.search, navigate]);
 
   const submitSearch = (event) => {
     event.preventDefault();
@@ -138,6 +159,18 @@ const Navbar = ({ setShowLogin }) => {
         )}
 
         <div className="hidden lg:flex items-center gap-2 lg:gap-3 shrink-0">
+          {loggedIn && <NotificationBell size="small" />}
+          {loggedIn && admin && (
+            <button
+              onClick={() => setChatOpen(true)}
+              className={`${actionClass} text-slate-700 hover:text-primary hover:bg-primary/8 inline-flex items-center gap-1.5`}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 10.5h8M8 14h4.6M5 6.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9.8L5 21v-2.5H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" />
+              </svg>
+              Chat
+            </button>
+          )}
           <ThemeToggle />
 
           {admin && (
@@ -231,6 +264,25 @@ const Navbar = ({ setShowLogin }) => {
           </nav>
 
           <div className="mt-4 pt-4 border-t border-borderColor flex flex-col gap-2">
+            {loggedIn && (
+              <div className="flex items-center gap-2">
+                <NotificationBell size="small" />
+                {admin ? (
+                  <button
+                    onClick={() => {
+                      setChatOpen(true);
+                      setOpen(false);
+                    }}
+                    className={`${actionClass} flex-1 text-slate-700 hover:bg-primary/8 text-left inline-flex items-center gap-1.5`}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 10.5h8M8 14h4.6M5 6.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9.8L5 21v-2.5H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" />
+                    </svg>
+                    Chat
+                  </button>
+                ) : null}
+              </div>
+            )}
             <ThemeToggle className="w-full justify-between" showLabel />
 
             {admin && (
@@ -270,6 +322,25 @@ const Navbar = ({ setShowLogin }) => {
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        fullWidth
+        maxWidth="lg"
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogContent sx={{ p: { xs: 1, sm: 1.5 } }}>
+          <AdminMessagingDashboard />
+        </DialogContent>
+      </Dialog>
+
+      {loggedIn && !admin ? <UserChatWidget /> : null}
     </header>
   );
 };

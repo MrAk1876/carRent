@@ -5,9 +5,10 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Footer from './components/Footer';
 import Login from './components/Login';
 import API from './api';
-import { isLoggedIn, isAdmin, hasPermission, isPlatformSuperAdmin } from './utils/auth';
-import { PERMISSIONS } from './utils/rbac';
+import { getUser, isLoggedIn, isAdmin, hasPermission, isPlatformSuperAdmin } from './utils/auth';
+import { PERMISSIONS, ROLES } from './utils/rbac';
 import MessageCenter from './components/ui/MessageCenter';
+import { initPushClient } from './services/pushClient';
 
 const Home = lazy(() => import('./pages/Home'));
 const CarDetail = lazy(() => import('./pages/CarDetail'));
@@ -25,10 +26,13 @@ const Dashboard = lazy(() => import('./features/admin/pages/Dashboard'));
 const AddCar = lazy(() => import('./features/admin/pages/AddCar'));
 const ManageCars = lazy(() => import('./features/admin/pages/ManageCars'));
 const ManageBooking = lazy(() => import('./features/admin/pages/ManageBooking'));
+const ManageAutoMessages = lazy(() => import('./pages/admin/AdminAutoMessageManager'));
 const AdminBookings = lazy(() => import('./features/admin/pages/AdminBookings'));
 const ManageUsers = lazy(() => import('./features/admin/pages/ManageUsers'));
 const ManageRoles = lazy(() => import('./features/admin/pages/ManageRoles'));
 const ManageBranches = lazy(() => import('./features/admin/pages/ManageBranches'));
+const ManageLocations = lazy(() => import('./features/admin/pages/ManageLocations'));
+const ManageCategories = lazy(() => import('./features/admin/pages/ManageCategories'));
 const AdminProfile = lazy(() => import('./features/admin/pages/AdminProfile'));
 const ManageOffers = lazy(() => import('./features/admin/pages/ManageOffers'));
 const ManageReviews = lazy(() => import('./features/admin/pages/ManageReviews'));
@@ -72,14 +76,19 @@ const App = () => {
   const loggedIn = isLoggedIn();
   const staff = isAdmin();
   const platformSuperAdmin = isPlatformSuperAdmin();
+  const currentRole = getUser()?.role;
+  const isFleetManager = currentRole === ROLES.FLEET_MANAGER;
   const can = (permission) => hasPermission(permission);
   const canManageBookings = can(PERMISSIONS.MANAGE_BOOKINGS);
   const canViewBookings = can(PERMISSIONS.VIEW_ALL_BOOKINGS) || can(PERMISSIONS.MANAGE_BOOKINGS);
   const canManageDrivers = can(PERMISSIONS.MANAGE_DRIVERS);
   const canViewPlatform = platformSuperAdmin;
   const canManageSubscriptions = can(PERMISSIONS.VIEW_FINANCIALS) || can(PERMISSIONS.MANAGE_ROLES);
+  const canManageLocations = [ROLES.SUPER_ADMIN, ROLES.BRANCH_ADMIN].includes(currentRole);
+  const canManageCategories = [ROLES.SUPER_ADMIN].includes(currentRole);
   const canViewFleetOverview =
-    can(PERMISSIONS.MANAGE_FLEET) || can(PERMISSIONS.MANAGE_MAINTENANCE) || can(PERMISSIONS.VIEW_ANALYTICS);
+    !isFleetManager &&
+    (can(PERMISSIONS.MANAGE_FLEET) || can(PERMISSIONS.MANAGE_MAINTENANCE) || can(PERMISSIONS.VIEW_ANALYTICS));
 
   const userPageFallback = staff ? '/owner' : '/';
   const rootTransitionKey = isOwnerPath ? '/owner-shell' : location.pathname;
@@ -107,6 +116,11 @@ const App = () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    void initPushClient();
+  }, [loggedIn]);
 
   return (
     <>
@@ -179,6 +193,10 @@ const App = () => {
                   element={canManageBookings ? <ManageBooking /> : <Navigate to="/owner/profile" replace />}
                 />
                 <Route
+                  path="auto-messages"
+                  element={canManageBookings ? <ManageAutoMessages /> : <Navigate to="/owner/profile" replace />}
+                />
+                <Route
                   path="offers"
                   element={can(PERMISSIONS.MANAGE_OFFERS) ? <ManageOffers /> : <Navigate to="/owner/profile" replace />}
                 />
@@ -196,7 +214,13 @@ const App = () => {
                 />
                 <Route
                   path="fleet-overview"
-                  element={canViewFleetOverview ? <FleetOverview /> : <Navigate to="/owner/profile" replace />}
+                  element={
+                    canViewFleetOverview ? (
+                      <FleetOverview />
+                    ) : (
+                      <Navigate to={can(PERMISSIONS.MANAGE_FLEET) ? '/owner/manage-cars' : '/owner/profile'} replace />
+                    )
+                  }
                 />
                 <Route
                   path="analytics"
@@ -227,12 +251,24 @@ const App = () => {
                   path="branches"
                   element={can(PERMISSIONS.MANAGE_ROLES) ? <ManageBranches /> : <Navigate to="/owner/profile" replace />}
                 />
+                <Route
+                  path="locations"
+                  element={canManageLocations ? <ManageLocations /> : <Navigate to="/owner/profile" replace />}
+                />
+                <Route
+                  path="categories"
+                  element={canManageCategories ? <ManageCategories /> : <Navigate to="/owner/profile" replace />}
+                />
                 <Route path="profile" element={<AdminProfile />} />
               </Route>
 
               <Route
                 path="/admin/rental-tracking"
                 element={staff ? <Navigate to="/owner/rental-tracking" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="/admin/auto-messages"
+                element={staff ? <Navigate to="/owner/auto-messages" replace /> : <Navigate to="/" replace />}
               />
               <Route
                 path="/admin/fleet-overview"
@@ -261,6 +297,14 @@ const App = () => {
               <Route
                 path="/admin/branches"
                 element={staff ? <Navigate to="/owner/branches" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="/admin/locations"
+                element={staff ? <Navigate to="/owner/locations" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="/admin/categories"
+                element={staff ? <Navigate to="/owner/categories" replace /> : <Navigate to="/" replace />}
               />
               <Route
                 path="/platform/overview"

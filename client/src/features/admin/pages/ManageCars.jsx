@@ -4,6 +4,7 @@ import { assets } from '../../../assets/assets';
 import API, { getErrorMessage } from '../../../api';
 import Title from '../components/Title';
 import useNotify from '../../../hooks/useNotify';
+import CarAvailabilityModal from '../../../components/CarAvailabilityModal';
 
 const resolveFleetStatus = (car) => {
   const normalized = String(car?.fleetStatus || '').trim();
@@ -29,6 +30,11 @@ const ManageCars = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [actionId, setActionId] = useState('');
+  const [availabilityModalState, setAvailabilityModalState] = useState({
+    open: false,
+    carId: '',
+    carLabel: '',
+  });
   const actionButtonBaseClass =
     'inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-2.5 text-xs font-semibold leading-none transition-all';
   const actionIconWrapClass = 'inline-flex h-4 w-4 shrink-0 items-center justify-center';
@@ -239,6 +245,22 @@ const ManageCars = () => {
                               </td>
                               <td className="p-3">
                                 <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    onClick={() =>
+                                      setAvailabilityModalState({
+                                        open: true,
+                                        carId: String(car._id || ''),
+                                        carLabel: `${car.brand || ''} ${car.model || ''}`.trim() || 'Selected Car',
+                                      })
+                                    }
+                                    className={`${actionButtonBaseClass} border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
+                                    title="Availability"
+                                  >
+                                    <span className={actionIconWrapClass}>
+                                      <img src={assets.calendar_icon_colored} alt="availability" className={actionIconClass} />
+                                    </span>
+                                    <span>Availability</span>
+                                  </button>
                                   <button onClick={() => navigate(`/owner/add-car?edit=${car._id}`)} disabled={actionId === car._id} className={`${actionButtonBaseClass} ${actionId === car._id ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-60' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`} title="Edit">
                                     <span className={actionIconWrapClass}>
                                       <img src={assets.edit_icon} alt="edit" className={actionIconClass} />
@@ -271,6 +293,18 @@ const ManageCars = () => {
         </div>
         <span className="admin-section-blur admin-section-blur--bottom" aria-hidden="true" />
       </div>
+
+      <CarAvailabilityModal
+        open={availabilityModalState.open}
+        carId={availabilityModalState.carId || null}
+        carLabel={availabilityModalState.carLabel}
+        onClose={() =>
+          setAvailabilityModalState((previous) => ({
+            ...previous,
+            open: false,
+          }))
+        }
+      />
     </div>
   );
 };

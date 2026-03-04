@@ -8,7 +8,8 @@ const {
 } = require('../utils/paymentUtils');
 const { normalizeFleetStatus, isFleetBookable, FLEET_STATUS } = require('../utils/fleetStatus');
 const { isStaffRole } = require('../utils/rbac');
-const { tryReserveCar, releaseCarIfUnblocked } = require('../services/fleetService');
+const { releaseCarIfUnblocked } = require('../services/fleetService');
+const { resolveAvailabilityConflict } = require('../services/conflictResolver');
 const { syncCarFleetStatusFromMaintenance } = require('../services/maintenanceService');
 const { assertCarInScope, assertBranchInScope } = require('../services/adminScopeService');
 const { assertCarBranchActive } = require('../services/branchService');
@@ -55,11 +56,6 @@ exports.createRequest = async (req, res) => {
       });
     }
 
-    const reservedCar = await tryReserveCar(carId);
-    if (!reservedCar) {
-      return res.status(409).json({ message: 'Vehicle just became unavailable. Please try another car.' });
-    }
-
     // 2️⃣ Date handling
     const start = new Date(fromDate);
     const end = new Date(toDate);
@@ -82,6 +78,19 @@ exports.createRequest = async (req, res) => {
 
     if (days <= 0) {
       return res.status(400).json({ message: 'Invalid booking duration' });
+    }
+
+    const availabilityConflict = await resolveAvailabilityConflict({
+      carId,
+      startDate: fromDate,
+      endDate: toDate,
+    });
+    if (!availabilityConflict.valid) {
+      return res.status(422).json({
+        message: 'Selected dates are already booked or blocked.',
+        conflictReason: availabilityConflict.conflictReason || '',
+        conflictingDates: availabilityConflict.primaryConflictDates || availabilityConflict.conflictingDates || [],
+      });
     }
 
     // 4️⃣ Price calculation

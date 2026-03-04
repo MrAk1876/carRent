@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
+import dayjs from 'dayjs';
 import API, { getErrorMessage } from '../api';
 import Cropper from 'react-easy-crop';
 import { getCroppedImg } from '../utils/cropImage';
 import { assets } from '../assets/assets';
 import useNotify from '../hooks/useNotify';
 import { resolveImageUrl } from '../utils/image';
+import UniversalCalendarInput from '../components/UniversalCalendarInput';
 
 const Profile = () => {
   const notify = useNotify();
+  const todayDateKey = dayjs().format('YYYY-MM-DD');
   const [user, setUser] = useState(null);
   const [showPass, setShowPass] = useState(false);
   const [password, setPassword] = useState('');
@@ -58,18 +61,19 @@ const Profile = () => {
     setZoom(1);
     setCrop({ x: 0, y: 0 });
   };
-  // calculate age from DOB
-  const calculateAge = dob => {
-    const birthDate = new Date(dob);
-    const today = new Date();
+  // calculate age from DOB using date-only comparison to avoid timezone drift
+  const calculateAge = (dob) => {
+    const dobInput = String(dob || '').split('T')[0];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dobInput)) return 0;
 
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const m = today.getMonth() - birthDate.getMonth();
+    const birthDate = dayjs(dobInput);
+    if (!birthDate.isValid()) return 0;
 
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
+    const today = dayjs().startOf('day');
+    let age = today.year() - birthDate.year();
+    if (today.month() < birthDate.month() || (today.month() === birthDate.month() && today.date() < birthDate.date())) {
+      age -= 1;
     }
-
     return age;
   };
 
@@ -90,10 +94,13 @@ const Profile = () => {
     if (!user.dob) {
       errors.dob = 'Date of birth is required';
     } else {
-      const dobDate = new Date(user.dob);
-      const today = new Date();
+      const dobInput = String(user.dob).split('T')[0];
+      const dobDate = dayjs(dobInput);
+      const today = dayjs().startOf('day');
 
-      if (dobDate > today) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dobInput) || !dobDate.isValid()) {
+        errors.dob = 'Invalid date of birth';
+      } else if (dobDate.isAfter(today, 'day')) {
         errors.dob = 'Date of birth cannot be in the future';
       } else {
         const age = calculateAge(user.dob);
@@ -295,13 +302,19 @@ const Profile = () => {
 
                   <div>
                     <label className="text-sm text-gray-600">Date Of Birth</label>
-                    <input
-                      type="date"
-                      className={`${inputClass('dob')} mt-1`}
-                      max={new Date().toISOString().split('T')[0]}
-                      value={user.dob?.split('T')[0] || ''}
-                      onChange={(e) => handleChange('dob', e.target.value)}
-                    />
+                    <div className="mt-1">
+                      <UniversalCalendarInput
+                        mode="single"
+                        variant="form"
+                        appearance="dob"
+                        value={user.dob?.split('T')[0] || null}
+                        minDate="1900-01-01"
+                        maxDate={todayDateKey}
+                        yearRange={{ start: 1900, end: new Date().getFullYear() }}
+                        onChange={(nextValue) => handleChange('dob', typeof nextValue === 'string' ? nextValue : '')}
+                        placeholder="Select date of birth"
+                      />
+                    </div>
                     {fieldErrors.dob && <p className="text-red-500 text-xs mt-1">{fieldErrors.dob}</p>}
                     {user.dob && <p className="text-xs text-gray-500 mt-1">Age: {calculateAge(user.dob)} years</p>}
                   </div>

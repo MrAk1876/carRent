@@ -3,6 +3,47 @@ const bcrypt = require('bcryptjs');
 const { ROLES, ROLE, normalizeRole, normalizeBranches } = require('../utils/rbac');
 const tenantScopedPlugin = require('../plugins/tenantScopedPlugin');
 
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const parseDobParts = (input) => {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+
+  const datePart = raw.includes('T') ? raw.split('T')[0] : raw;
+  const match = DATE_ONLY_PATTERN.exec(datePart);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const candidate = new Date(year, month - 1, day);
+
+  if (
+    Number.isNaN(candidate.getTime()) ||
+    candidate.getFullYear() !== year ||
+    candidate.getMonth() !== month - 1 ||
+    candidate.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return { year, month, day };
+};
+
+const isFutureDob = (dobParts, referenceDate = new Date()) => {
+  if (!dobParts) return true;
+
+  const referenceYear = referenceDate.getFullYear();
+  const referenceMonth = referenceDate.getMonth() + 1;
+  const referenceDay = referenceDate.getDate();
+
+  if (dobParts.year > referenceYear) return true;
+  if (dobParts.year < referenceYear) return false;
+  if (dobParts.month > referenceMonth) return true;
+  if (dobParts.month < referenceMonth) return false;
+  return dobParts.day > referenceDay;
+};
+
 const userSchema = new mongoose.Schema(
   {
     // Login fields
@@ -53,9 +94,11 @@ const userSchema = new mongoose.Schema(
       validate: {
         validator: function (v) {
           if (!v) return true; // allow empty for old users
-          return new Date(v) <= new Date();
+          const dobParts = parseDobParts(v);
+          if (!dobParts) return false;
+          return !isFutureDob(dobParts);
         },
-        message: 'Date of birth cannot be in the future',
+        message: 'Date of birth must be a valid past date',
       },
     },
 

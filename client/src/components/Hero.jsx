@@ -5,6 +5,7 @@ import ScrollReveal from './ui/ScrollReveal';
 import TypingText from './ui/TypingText';
 import useNotify from '../hooks/useNotify';
 import { getCarFilterOptions } from '../services/carService';
+import UniversalCalendarInput from './UniversalCalendarInput';
 
 const Hero = () => {
   const navigate = useNavigate();
@@ -24,6 +25,7 @@ const Hero = () => {
     'hero-search-field group rounded-xl border border-slate-200 bg-slate-50/85 px-3.5 py-2.5 transition-all duration-200 focus-within:border-primary focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(37,99,235,0.14)]';
   const inputClass =
     'hero-search-input mt-1.5 w-full border-0 bg-transparent p-0 text-[15px] font-medium text-slate-800 outline-none ring-0 focus:ring-0';
+  const todayDate = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -182,25 +184,25 @@ const Hero = () => {
 
                 <div className={fieldShellClass}>
                   <label className="hero-search-label text-[11px] uppercase tracking-[0.11em] text-slate-500">Pickup Date</label>
-                  <input
-                    type="date"
-                    min={new Date().toISOString().split('T')[0]}
-                    value={pickupDate}
-                    onChange={(e) => setPickupDate(e.target.value)}
-                    className={inputClass}
-                    required
+                  <UniversalCalendarInput
+                    mode="single"
+                    value={pickupDate || null}
+                    onChange={(nextValue) => setPickupDate(typeof nextValue === 'string' ? nextValue : '')}
+                    minDate={todayDate}
+                    disablePast
+                    placeholder="Select pickup date"
                   />
                 </div>
 
                 <div className={fieldShellClass}>
                   <label className="hero-search-label text-[11px] uppercase tracking-[0.11em] text-slate-500">Return Date</label>
-                  <input
-                    type="date"
-                    min={pickupDate || new Date().toISOString().split('T')[0]}
-                    value={returnDate}
-                    onChange={(e) => setReturnDate(e.target.value)}
-                    className={inputClass}
-                    required
+                  <UniversalCalendarInput
+                    mode="single"
+                    value={returnDate || null}
+                    onChange={(nextValue) => setReturnDate(typeof nextValue === 'string' ? nextValue : '')}
+                    minDate={pickupDate || todayDate}
+                    disablePast
+                    placeholder="Select return date"
                   />
                 </div>
               </div>

@@ -7,6 +7,7 @@ const {
   resolveFinalAmount,
   isAdvancePaidStatus,
 } = require('../utils/paymentUtils');
+const { resolveAvailabilityConflict } = require('../services/conflictResolver');
 const {
   parseDateTimeInput,
   validateRentalWindow,
@@ -15,7 +16,6 @@ const {
 const { resolveSmartPriceForCar, buildPricingAmounts } = require('../services/smartPricingService');
 const { normalizeFleetStatus, isFleetBookable, FLEET_STATUS } = require('../utils/fleetStatus');
 const { isStaffRole } = require('../utils/rbac');
-const { tryReserveCar, updateCarFleetStatus, releaseCarIfUnblocked } = require('../services/fleetService');
 const { syncCarFleetStatusFromMaintenance } = require('../services/maintenanceService');
 const { assertCarBranchActive } = require('../services/branchService');
 const {
@@ -98,6 +98,19 @@ exports.createRequest = async (req, res) => {
       .lean();
     if (existingPendingRequest?._id) {
       return res.status(422).json({ message: 'You already have a pending request for this vehicle' });
+    }
+
+    const availabilityConflict = await resolveAvailabilityConflict({
+      carId,
+      startDate: normalizedPickupDateTime,
+      endDate: normalizedDropDateTime,
+    });
+    if (!availabilityConflict.valid) {
+      return res.status(422).json({
+        message: 'Selected dates are already booked or blocked.',
+        conflictReason: availabilityConflict.conflictReason || '',
+        conflictingDates: availabilityConflict.primaryConflictDates || availabilityConflict.conflictingDates || [],
+      });
     }
 
     const pricingSnapshot = await resolveSmartPriceForCar(activeCar, {
@@ -215,18 +228,7 @@ exports.createRequest = async (req, res) => {
     requestData.advancePaid = 0;
     requestData.remainingAmount = breakdown.remainingAmount;
 
-    const reservedCar = await tryReserveCar(carId);
-    if (!reservedCar) {
-      return res.status(409).json({ message: 'Vehicle just became unavailable. Please try another car.' });
-    }
-
-    let request;
-    try {
-      request = await Request.create(requestData);
-    } catch (requestCreationError) {
-      await releaseCarIfUnblocked(carId);
-      throw requestCreationError;
-    }
+    const request = await Request.create(requestData);
 
     queuePendingPaymentEmailForRequest(request);
 
@@ -374,7 +376,6 @@ exports.payAdvance = async (req, res) => {
       }
     }
 
-    await updateCarFleetStatus(request.car._id, FLEET_STATUS.RESERVED);
     await Request.findByIdAndDelete(request._id);
     queueAdvancePaidConfirmationEmail(booking);
 

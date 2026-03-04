@@ -1,6 +1,7 @@
 const Booking = require('../models/Booking');
 const Car = require('../models/Car');
 const Request = require('../models/Request');
+const { ensureBranchById } = require('./branchService');
 const {
   FLEET_STATUS,
   FLEET_STATUS_VALUES,
@@ -108,9 +109,19 @@ const releaseCarIfUnblocked = async (carId) => {
     return { released: false, car: null };
   }
 
-  const car = await Car.findById(carId).select('_id fleetStatus isAvailable');
+  const car = await Car.findById(carId).select('_id fleetStatus isAvailable branchId');
   if (!car) {
     return { released: false, car: null };
+  }
+
+  const branch = await ensureBranchById(car.branchId);
+  if (branch && !branch.isActive) {
+    const currentStatus = resolveFleetStatus(car);
+    if (currentStatus !== FLEET_STATUS.INACTIVE) {
+      const updatedCar = await updateCarFleetStatus(carId, FLEET_STATUS.INACTIVE);
+      return { released: false, car: updatedCar };
+    }
+    return { released: false, car };
   }
 
   if (!shouldAutoReleaseToAvailable(car)) {

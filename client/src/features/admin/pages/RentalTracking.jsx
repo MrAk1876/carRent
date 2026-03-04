@@ -657,16 +657,15 @@ const RentalTracking = () => {
   );
 
   return (
-    <div className="admin-section-page px-4 pt-6 md:pt-10 md:px-10 pb-8 md:pb-10 w-full">
-      <Title
-        title="Rental Tracking"
-        subTitle="Monitor scheduled pickups, active rentals, overdue risk, and completed trip settlements."
-      />
+    <div className="w-full px-4 pb-8 pt-6 md:px-10 md:pb-10 md:pt-10">
+      <div className="mx-auto max-w-[1500px]">
+        <Title
+          title="Rental Tracking"
+          subTitle="Monitor scheduled pickups, active rentals, overdue risk, and completed trip settlements."
+        />
 
-      <div className="admin-section-scroll-shell mt-4 md:mt-6">
-        <span className="admin-section-blur admin-section-blur--top" aria-hidden="true" />
-        <div className="admin-section-scroll admin-section-scroll--proximity">
-          <section className="rounded-2xl border border-slate-700 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 p-5 md:p-6 text-white shadow-sm">
+        <div className="mt-4 space-y-5 md:mt-6">
+          <section className="rounded-2xl border border-slate-700 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 p-5 text-white shadow-sm md:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.2em] text-blue-200">Rental Operations</p>
@@ -696,7 +695,7 @@ const RentalTracking = () => {
             {errorMsg ? <p className="mt-3 text-sm text-red-200">{errorMsg}</p> : null}
           </section>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <SummaryMetric
               title="Total Tracked"
               value={formatAmount(bookings.length)}
@@ -729,7 +728,7 @@ const RentalTracking = () => {
             />
           </div>
 
-          <div className="mt-5 space-y-5 pb-1">
+          <div className="space-y-5 pb-1">
             <SectionShell
               title="Section A - Upcoming Pickups"
               subtitle="Scheduled rentals sorted by nearest pickup time."
@@ -806,7 +805,6 @@ const RentalTracking = () => {
             />
           </div>
         </div>
-        <span className="admin-section-blur admin-section-blur--bottom" aria-hidden="true" />
       </div>
     </div>
   );

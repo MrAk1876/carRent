@@ -1,9 +1,12 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
+import dayjs from 'dayjs';
 import API, { getErrorMessage } from '../api';
+import UniversalCalendarInput from '../components/UniversalCalendarInput';
 
 const PLACEHOLDER_AVATAR = 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
 
 const CompleteProfile = () => {
+  const todayDateKey = dayjs().format('YYYY-MM-DD');
   const [form, setForm] = useState({
     phone: '',
     address: '',
@@ -16,13 +19,15 @@ const CompleteProfile = () => {
   const [errorMsg, setErrorMsg] = useState('');
 
   const calculateAge = (dob) => {
-    const birthDate = new Date(dob);
-    const today = new Date();
+    const dobInput = String(dob || '').split('T')[0];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dobInput)) return 0;
 
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
+    const birthDate = dayjs(dobInput);
+    if (!birthDate.isValid()) return 0;
 
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    const today = dayjs().startOf('day');
+    let age = today.year() - birthDate.year();
+    if (today.month() < birthDate.month() || (today.month() === birthDate.month() && today.date() < birthDate.date())) {
       age -= 1;
     }
 
@@ -38,10 +43,15 @@ const CompleteProfile = () => {
       return 'Date of birth is required';
     }
 
-    const dobDate = new Date(form.dob);
-    const today = new Date();
+    const dobInput = String(form.dob).split('T')[0];
+    const dobDate = dayjs(dobInput);
+    const today = dayjs().startOf('day');
 
-    if (dobDate > today) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dobInput) || !dobDate.isValid()) {
+      return 'Invalid date of birth';
+    }
+
+    if (dobDate.isAfter(today, 'day')) {
       return 'Date of birth cannot be in the future';
     }
 
@@ -172,13 +182,19 @@ const CompleteProfile = () => {
 
             <div>
               <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Date Of Birth</label>
-              <input
-                type="date"
-                className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
-                max={new Date().toISOString().split('T')[0]}
-                value={form.dob}
-                onChange={(e) => setForm({ ...form, dob: e.target.value })}
-              />
+              <div className="mt-1.5">
+                <UniversalCalendarInput
+                  mode="single"
+                  variant="form"
+                  appearance="dob"
+                  value={form.dob || null}
+                  minDate="1900-01-01"
+                  maxDate={todayDateKey}
+                  yearRange={{ start: 1900, end: new Date().getFullYear() }}
+                  onChange={(nextValue) => setForm({ ...form, dob: typeof nextValue === 'string' ? nextValue : '' })}
+                  placeholder="Select date of birth"
+                />
+              </div>
               {liveAge !== null ? (
                 <div className="mt-2 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
                   Age: {liveAge} years
@@ -220,3 +236,4 @@ const CompleteProfile = () => {
 };
 
 export default CompleteProfile;
+

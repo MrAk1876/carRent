@@ -466,6 +466,26 @@ const bookingSchema = new mongoose.Schema(
         default: null,
       },
     },
+    reminder2hrSent: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    reminder1hrSent: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    reminderDropTimeCompleteSent: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    dropExpiredMessageSent: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
 
     bookingStatus: {
       type: String,

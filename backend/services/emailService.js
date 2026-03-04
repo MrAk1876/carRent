@@ -14,11 +14,11 @@ const toNumber = (value, fallback = 0) => {
   return numericValue;
 };
 
-const EMAIL_HOST = String(process.env.EMAIL_HOST || '').trim();
-const EMAIL_PORT = toNumber(process.env.EMAIL_PORT, 0);
-const EMAIL_USER = String(process.env.EMAIL_USER || '').trim();
-const EMAIL_PASS = String(process.env.EMAIL_PASS || '').trim();
-const EMAIL_FROM = String(process.env.EMAIL_FROM || '').trim() || EMAIL_USER;
+const EMAIL_HOST = String(process.env.SMTP_HOST || process.env.EMAIL_HOST || '').trim();
+const EMAIL_PORT = toNumber(process.env.SMTP_PORT || process.env.EMAIL_PORT, 0);
+const EMAIL_USER = String(process.env.SMTP_USER || process.env.EMAIL_USER || '').trim();
+const EMAIL_PASS = String(process.env.SMTP_PASS || process.env.EMAIL_PASS || '').trim();
+const EMAIL_FROM = String(process.env.SMTP_FROM || process.env.EMAIL_FROM || '').trim() || EMAIL_USER;
 const EMAIL_POOL = toBoolean(process.env.EMAIL_POOL, true);
 const EMAIL_REJECT_UNAUTHORIZED = toBoolean(process.env.EMAIL_TLS_REJECT_UNAUTHORIZED, true);
 
@@ -56,11 +56,32 @@ const getTransporter = () => {
   return cachedTransporter;
 };
 
-const sendEmail = async (payload = {}) => {
-  const to = String(payload.to || '').trim();
-  const subject = String(payload.subject || '').trim();
+const resolvePayload = (payloadOrTo, subject, htmlContent, options = {}) => {
+  if (payloadOrTo && typeof payloadOrTo === 'object' && !Array.isArray(payloadOrTo)) {
+    return {
+      to: String(payloadOrTo.to || '').trim(),
+      subject: String(payloadOrTo.subject || '').trim(),
+      html: String(payloadOrTo.html || '').trim(),
+      text: String(payloadOrTo.text || '').trim(),
+      attachments: Array.isArray(payloadOrTo.attachments) ? payloadOrTo.attachments : [],
+    };
+  }
 
-  if (!to || !subject) {
+  return {
+    to: String(payloadOrTo || '').trim(),
+    subject: String(subject || '').trim(),
+    html: String(htmlContent || '').trim(),
+    text: String(options.text || '').trim(),
+    attachments: Array.isArray(options.attachments) ? options.attachments : [],
+  };
+};
+
+const sendEmail = async (payloadOrTo = {}, subject = '', htmlContent = '', options = {}) => {
+  const payload = resolvePayload(payloadOrTo, subject, htmlContent, options);
+  const to = String(payload.to || '').trim();
+  const emailSubject = String(payload.subject || '').trim();
+
+  if (!to || !emailSubject) {
     return {
       sent: false,
       skipped: true,
@@ -81,7 +102,7 @@ const sendEmail = async (payload = {}) => {
     const info = await transporter.sendMail({
       from: EMAIL_FROM,
       to,
-      subject,
+      subject: emailSubject,
       html: payload.html || '',
       text: payload.text || '',
       attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
@@ -95,7 +116,7 @@ const sendEmail = async (payload = {}) => {
   } catch (error) {
     console.error('Email send failed:', {
       to,
-      subject,
+      subject: emailSubject,
       message: error?.message || error,
     });
     return {
