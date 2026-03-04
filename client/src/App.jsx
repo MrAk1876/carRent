@@ -8,7 +8,7 @@ import API from './api';
 import { getUser, isLoggedIn, isAdmin, hasPermission, isPlatformSuperAdmin } from './utils/auth';
 import { PERMISSIONS, ROLES } from './utils/rbac';
 import MessageCenter from './components/ui/MessageCenter';
-import { initPushClient } from './services/pushClient';
+import { disablePushServiceWorkerInDev, initPushClient } from './services/pushClient';
 
 const Home = lazy(() => import('./pages/Home'));
 const CarDetail = lazy(() => import('./pages/CarDetail'));
@@ -115,6 +115,10 @@ const App = () => {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    void disablePushServiceWorkerInDev();
   }, []);
 
   useEffect(() => {

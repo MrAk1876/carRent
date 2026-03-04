@@ -60,6 +60,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     <Box
       sx={{
         p: 1.2,
+        pb: 'max(10px, env(safe-area-inset-bottom, 0px))',
         borderTop: '1px solid',
         borderColor: 'divider',
         backgroundColor: 'background.paper',

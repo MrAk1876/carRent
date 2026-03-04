@@ -4,6 +4,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { getUser, hasPermission } from '../../../utils/auth';
 import { normalizeRole } from '../../../utils/rbac';
 import { resolveImageUrl } from '../../../utils/image';
+import ThemeToggle from '../../../components/ThemeToggle';
 import './Sidebar.css';
 
 const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
@@ -34,14 +35,14 @@ const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
 
   return (
     <>
-      <button
-        type="button"
-        aria-label="Close navigation menu"
-        aria-hidden={!isOpen}
-        tabIndex={isOpen ? 0 : -1}
-        className={`owner-sidebar__backdrop ${isOpen ? 'is-visible' : ''}`}
-        onClick={onClose}
-      />
+      {isOpen ? (
+        <button
+          type="button"
+          aria-label="Close navigation menu"
+          className="owner-sidebar__backdrop is-visible"
+          onClick={onClose}
+        />
+      ) : null}
 
       <aside id="owner-sidebar" className={`owner-sidebar ${isOpen ? 'is-open' : ''}`}>
         <div className="owner-sidebar__glow owner-sidebar__glow--top" aria-hidden="true" />
@@ -73,6 +74,11 @@ const Sidebar = ({ isOpen = false, onClose = () => {} }) => {
           >
             <img src={assets.edit_icon} alt="" />
           </button>
+        </div>
+
+        <div className="owner-sidebar__appearance">
+          <p className="owner-sidebar__group-title owner-sidebar__group-title--compact">Appearance</p>
+          <ThemeToggle className="owner-sidebar__theme-toggle" showLabel />
         </div>
 
         <nav className="owner-sidebar__nav" aria-label="Admin navigation">

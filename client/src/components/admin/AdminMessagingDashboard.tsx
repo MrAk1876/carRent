@@ -38,6 +38,7 @@ type LooseRecord = Record<string, unknown>;
 type ConversationFilter = 'all' | 'unread';
 
 const MAX_PREVIEW_LENGTH = 96;
+const HIDDEN_CHAT_STORAGE_PREFIX = 'car-rental:admin-hidden-chats';
 
 const normalizeText = (value: unknown) => String(value || '').trim();
 
@@ -105,6 +106,32 @@ const formatPreview = (value: string) => {
   return `${normalized.slice(0, MAX_PREVIEW_LENGTH - 1)}...`;
 };
 
+const buildHiddenChatStorageKey = (adminUserId: string, tenantId: string) =>
+  `${HIDDEN_CHAT_STORAGE_PREFIX}:${tenantId || 'global'}:${adminUserId || 'anonymous'}`;
+
+const readHiddenUserIds = (storageKey: string) => {
+  if (typeof window === 'undefined') return [] as string[];
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [] as string[];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [] as string[];
+    return [...new Set(parsed.map((entry) => toId(entry)).filter(Boolean))];
+  } catch {
+    return [] as string[];
+  }
+};
+
+const writeHiddenUserIds = (storageKey: string, ids: string[]) => {
+  if (typeof window === 'undefined') return;
+  const unique = [...new Set(ids.map((entry) => toId(entry)).filter(Boolean))];
+  if (unique.length === 0) {
+    window.localStorage.removeItem(storageKey);
+    return;
+  }
+  window.localStorage.setItem(storageKey, JSON.stringify(unique));
+};
+
 const toParticipantFromUser = (entry: LooseRecord): Participant => {
   const userId = toId(entry._id || entry.id || entry.userId);
   const firstName = normalizeText(entry.firstName);
@@ -155,15 +182,34 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
   const [messagesByUser, setMessagesByUser] = useState<Record<string, ChatMessage[]>>({});
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [unreadByUser, setUnreadByUser] = useState<Record<string, number>>({});
+  const [hiddenUserIds, setHiddenUserIds] = useState<string[]>([]);
   const [presenceByUser, setPresenceByUser] = useState<
     Record<string, { status: 'online' | 'offline'; lastSeen: string | null }>
   >({});
   const [totalUnread, setTotalUnread] = useState(0);
+  const hiddenChatStorageKey = useMemo(
+    () => buildHiddenChatStorageKey(currentUserId, tenantId),
+    [currentUserId, tenantId],
+  );
+  const hiddenUserIdSet = useMemo(() => new Set(hiddenUserIds), [hiddenUserIds]);
 
   const selectedUserRef = useRef(selectedUserId);
   useEffect(() => {
     selectedUserRef.current = selectedUserId;
   }, [selectedUserId]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setHiddenUserIds([]);
+      return;
+    }
+    setHiddenUserIds(readHiddenUserIds(hiddenChatStorageKey));
+  }, [currentUserId, hiddenChatStorageKey]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    writeHiddenUserIds(hiddenChatStorageKey, hiddenUserIds);
+  }, [currentUserId, hiddenChatStorageKey, hiddenUserIds]);
 
   const ensureParticipant = useCallback((userId: string, nameHint = 'User') => {
     const normalizedUserId = toId(userId);
@@ -210,6 +256,23 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
     });
     setUnreadByUser((prev) => ({ ...prev, [peerUserId]: 0 }));
   }, []);
+
+  const handleToggleHiddenConversation = useCallback((peerUserId: string, hidden: boolean) => {
+    const normalizedPeerId = toId(peerUserId);
+    if (!normalizedPeerId) return;
+    setHiddenUserIds((prev) => {
+      const next = new Set(prev);
+      if (hidden) {
+        next.add(normalizedPeerId);
+      } else {
+        next.delete(normalizedPeerId);
+      }
+      return [...next];
+    });
+    if (hidden && selectedUserId === normalizedPeerId && !normalizeText(searchTerm)) {
+      setSelectedUserId('');
+    }
+  }, [searchTerm, selectedUserId]);
 
   const loadConversation = useCallback(async (peerUserId: string, options: { silent?: boolean } = {}) => {
     const normalizedPeerId = toId(peerUserId);
@@ -291,7 +354,10 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
       return;
     }
     if (selectedUserId && participants.some((entry) => entry.userId === selectedUserId)) return;
-    setSelectedUserId(participants[0].userId);
+
+    // Do not auto-open first conversation; admin should pick from list explicitly.
+    if (!selectedUserId) return;
+    setSelectedUserId('');
   }, [participants, selectedUserId]);
 
   useEffect(() => {
@@ -415,6 +481,7 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
       ...prev,
       [selectedUserId]: addUniqueMessage(prev[selectedUserId] || [], sentMessage),
     }));
+    setHiddenUserIds((prev) => prev.filter((entry) => entry !== selectedUserId));
   }, [currentUserId, selectedUserId]);
 
   const handleEditMessage = useCallback(async (messageId: string, content: string) => {
@@ -440,12 +507,16 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
 
   const allConversationItems = useMemo(() => {
     const query = normalizeText(searchTerm).toLowerCase();
+    const hasQuery = Boolean(query);
     const filteredParticipants = participants.filter((entry) => {
-      if (!query) return true;
-      return (
+      const matchesQuery = !query || (
         normalizeText(entry.name).toLowerCase().includes(query) ||
         normalizeText(entry.email).toLowerCase().includes(query)
       );
+      if (!matchesQuery) return false;
+      const isHidden = hiddenUserIdSet.has(entry.userId);
+      if (isHidden && !hasQuery) return false;
+      return true;
     });
 
     const list: ConversationListItem[] = filteredParticipants.map((entry) => {
@@ -462,16 +533,20 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
         unreadCount: Number(unreadByUser[entry.userId] || 0),
         presenceStatus: presenceByUser[entry.userId]?.status || 'offline',
         lastSeen: presenceByUser[entry.userId]?.lastSeen || null,
+        isHidden: hiddenUserIdSet.has(entry.userId),
       };
     });
 
     return list.sort((left, right) => {
+      if (Boolean(left.isHidden) !== Boolean(right.isHidden)) {
+        return left.isHidden ? 1 : -1;
+      }
       const leftDate = new Date(left.lastMessageAt || 0).getTime();
       const rightDate = new Date(right.lastMessageAt || 0).getTime();
       if (leftDate === rightDate) return left.name.localeCompare(right.name);
       return rightDate - leftDate;
     });
-  }, [messagesByUser, participants, presenceByUser, searchTerm, unreadByUser]);
+  }, [hiddenUserIdSet, messagesByUser, participants, presenceByUser, searchTerm, unreadByUser]);
 
   const filteredConversationItems = useMemo(() => {
     if (conversationFilter === 'all') return allConversationItems;
@@ -572,6 +647,7 @@ const AdminMessagingDashboard: React.FC<AdminMessagingDashboardProps> = ({
               selectedUserId={selectedUserId}
               loading={loadingParticipants}
               onSelectConversation={setSelectedUserId}
+              onToggleHidden={handleToggleHiddenConversation}
             />
           </Box>
         </Box>

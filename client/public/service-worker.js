@@ -4,8 +4,33 @@ const API_CACHE = 'carrental-api-v1';
 const ACTIVE_CACHES = [APP_CACHE, STATIC_CACHE, API_CACHE];
 
 const APP_SHELL_ASSETS = ['/', '/index.html', '/favicon.svg'];
+const isLocalDevelopmentHost = ['localhost', '127.0.0.1'].includes(self.location.hostname);
+
+if (isLocalDevelopmentHost) {
+  self.addEventListener('install', () => {
+    self.skipWaiting();
+  });
+
+  self.addEventListener('activate', (event) => {
+    event.waitUntil(
+      self.registration.unregister().then(() =>
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) =>
+          Promise.all(
+            clients.map((client) => {
+              if ('navigate' in client) {
+                return client.navigate(client.url);
+              }
+              return Promise.resolve();
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+}
 
 self.addEventListener('install', (event) => {
+  if (isLocalDevelopmentHost) return;
   event.waitUntil(
     caches
       .open(APP_CACHE)
@@ -16,6 +41,7 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
+  if (isLocalDevelopmentHost) return;
   event.waitUntil(
     caches
       .keys()
@@ -98,6 +124,7 @@ const staleWhileRevalidate = async (request, cacheName) => {
 };
 
 self.addEventListener('fetch', (event) => {
+  if (isLocalDevelopmentHost) return;
   const { request } = event;
   if (!request || request.method !== 'GET') return;
 

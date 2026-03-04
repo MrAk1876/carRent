@@ -320,7 +320,9 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
       return;
     }
 
-    setSelectedUserId(participantList[0].userId);
+    // Do not auto-open first conversation; user/admin should pick from list explicitly.
+    if (!selectedUserId) return;
+    setSelectedUserId('');
   }, [defaultSelectedUserId, participantList, selectedUserId]);
 
   useEffect(() => {

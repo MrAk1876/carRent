@@ -3,11 +3,14 @@ import {
   Avatar,
   Badge,
   Box,
+  IconButton,
   List,
   ListItemButton,
-  ListItemText,
+  Menu,
+  MenuItem,
   Skeleton,
   Stack,
+  Tooltip,
   Typography,
   alpha,
   useTheme,
@@ -22,6 +25,7 @@ export type ConversationListItem = {
   unreadCount?: number;
   presenceStatus?: 'online' | 'offline';
   lastSeen?: string | null;
+  isHidden?: boolean;
 };
 
 type ConversationListProps = {
@@ -29,6 +33,7 @@ type ConversationListProps = {
   selectedUserId: string;
   loading?: boolean;
   onSelectConversation: (userId: string) => void;
+  onToggleHidden?: (userId: string, hidden: boolean) => void;
 };
 
 const toDateTimeLabel = (value?: string) => {
@@ -55,9 +60,29 @@ const ConversationList: React.FC<ConversationListProps> = ({
   selectedUserId,
   loading = false,
   onSelectConversation,
+  onToggleHidden,
 }) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
+  const [menuAnchorEl, setMenuAnchorEl] = React.useState<null | HTMLElement>(null);
+  const [menuConversation, setMenuConversation] = React.useState<ConversationListItem | null>(null);
+
+  const handleOpenMenu = (event: React.MouseEvent<HTMLElement>, conversation: ConversationListItem) => {
+    event.stopPropagation();
+    setMenuAnchorEl(event.currentTarget);
+    setMenuConversation(conversation);
+  };
+
+  const handleCloseMenu = () => {
+    setMenuAnchorEl(null);
+    setMenuConversation(null);
+  };
+
+  const handleToggleHidden = () => {
+    if (!menuConversation || !onToggleHidden) return;
+    onToggleHidden(menuConversation.userId, !Boolean(menuConversation.isHidden));
+    handleCloseMenu();
+  };
 
   if (loading) {
     return (
@@ -103,6 +128,8 @@ const ConversationList: React.FC<ConversationListProps> = ({
         height: '100%',
         minHeight: 0,
         overflowY: 'auto',
+        scrollbarGutter: 'stable',
+        WebkitOverflowScrolling: 'touch',
         overscrollBehavior: 'contain',
       }}
     >
@@ -110,6 +137,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
         const isSelected = selectedUserId === conversation.userId;
         const unreadCount = Math.max(Number(conversation.unreadCount || 0), 0);
         const isOnline = String(conversation.presenceStatus || '').toLowerCase() === 'online';
+        const isHidden = Boolean(conversation.isHidden);
         return (
           <ListItemButton
             key={conversation.userId}
@@ -148,62 +176,120 @@ const ConversationList: React.FC<ConversationListProps> = ({
                 {String(conversation.name || '?').trim().charAt(0).toUpperCase()}
               </Avatar>
             </Badge>
-            <ListItemText
-              primaryTypographyProps={{ component: 'div' }}
-              secondaryTypographyProps={{ component: 'div' }}
-              primary={
-                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                  <Stack direction="row" spacing={0.65} alignItems="center" sx={{ minWidth: 0 }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                <Stack direction="row" spacing={0.65} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Box
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 999,
+                      backgroundColor: isOnline ? 'success.main' : alpha(theme.palette.text.disabled, 0.9),
+                      boxShadow: isOnline
+                        ? `0 0 0 4px ${alpha(theme.palette.success.main, isDark ? 0.24 : 0.14)}`
+                        : 'none',
+                    }}
+                  />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>
+                    {conversation.name || 'Unknown'}
+                  </Typography>
+                  {isHidden ? (
                     <Box
+                      component="span"
                       sx={{
-                        width: 8,
-                        height: 8,
+                        px: 0.65,
+                        py: 0.1,
                         borderRadius: 999,
-                        backgroundColor: isOnline ? 'success.main' : alpha(theme.palette.text.disabled, 0.9),
-                        boxShadow: isOnline
-                          ? `0 0 0 4px ${alpha(theme.palette.success.main, isDark ? 0.24 : 0.14)}`
-                          : 'none',
+                        border: '1px solid',
+                        borderColor: alpha(theme.palette.warning.main, 0.5),
+                        color: 'warning.dark',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        lineHeight: 1.2,
                       }}
-                    />
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>
-                      {conversation.name || 'Unknown'}
-                    </Typography>
-                  </Stack>
-                  {conversation.lastMessageAt ? (
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      {toDateTimeLabel(conversation.lastMessageAt)}
-                    </Typography>
+                    >
+                      Hidden
+                    </Box>
                   ) : null}
                 </Stack>
-              }
-              secondary={
-                <Stack spacing={0.25} sx={{ mt: 0.2 }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: 'text.secondary',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      maxWidth: '100%',
-                    }}
-                  >
-                    {conversation.lastMessagePreview || 'Start a conversation'}
+                {conversation.lastMessageAt ? (
+                  <Typography component="span" variant="caption" sx={{ color: 'text.secondary' }}>
+                    {toDateTimeLabel(conversation.lastMessageAt)}
                   </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: isOnline ? 'success.dark' : 'text.secondary',
-                    }}
-                  >
-                    {isOnline ? 'Online' : toLastSeenLabel(conversation.lastSeen)}
-                  </Typography>
-                </Stack>
-              }
-            />
+                ) : null}
+              </Stack>
+              <Stack spacing={0.25} sx={{ mt: 0.2 }}>
+                <Typography
+                  component="span"
+                  variant="body2"
+                  sx={{
+                    display: 'block',
+                    color: 'text.secondary',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '100%',
+                  }}
+                >
+                  {conversation.lastMessagePreview || 'Start a conversation'}
+                </Typography>
+                <Typography
+                  component="span"
+                  variant="caption"
+                  sx={{
+                    display: 'block',
+                    color: isOnline ? 'success.dark' : 'text.secondary',
+                  }}
+                >
+                  {isOnline ? 'Online' : toLastSeenLabel(conversation.lastSeen)}
+                </Typography>
+              </Stack>
+            </Box>
+            {onToggleHidden ? (
+              <Tooltip title={isHidden ? 'Show in chats' : 'Remove from chats'}>
+                <IconButton
+                  size="small"
+                  onClick={(event) => handleOpenMenu(event, conversation)}
+                  sx={{
+                    ml: 0.65,
+                    color: 'text.secondary',
+                    border: '1px solid',
+                    borderColor: alpha(theme.palette.divider, 0.75),
+                    '&:hover': { color: 'text.primary' },
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M5 12h.01M12 12h.01M19 12h.01"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </IconButton>
+              </Tooltip>
+            ) : null}
           </ListItemButton>
         );
       })}
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleCloseMenu}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            border: `1px solid ${alpha(theme.palette.divider, 0.78)}`,
+            minWidth: 180,
+          },
+        }}
+      >
+        <MenuItem onClick={handleToggleHidden}>
+          {menuConversation?.isHidden ? 'Show in chats' : 'Remove from chats'}
+        </MenuItem>
+      </Menu>
     </List>
   );
 };

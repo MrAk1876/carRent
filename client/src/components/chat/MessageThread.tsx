@@ -82,6 +82,7 @@ const MessageThread: React.FC<MessageThreadProps> = ({
 }) => {
   const theme = useTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const touchOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [menuState, setMenuState] = React.useState<{
     messageId: string;
     mouseX: number;
@@ -109,6 +110,15 @@ const MessageThread: React.FC<MessageThreadProps> = ({
     if (!node) return;
     node.scrollTop = node.scrollHeight;
   }, [sortedMessages.length]);
+
+  useEffect(
+    () => () => {
+      if (!touchOpenTimerRef.current) return;
+      clearTimeout(touchOpenTimerRef.current);
+      touchOpenTimerRef.current = null;
+    },
+    [],
+  );
 
   const selectedMessage = useMemo(
     () => sortedMessages.find((message) => message._id === menuState?.messageId) || null,
@@ -138,6 +148,26 @@ const MessageThread: React.FC<MessageThreadProps> = ({
       mouseX: event.clientX + 2,
       mouseY: event.clientY - 6,
     });
+  };
+
+  const openActionMenuAtPoint = (
+    x: number,
+    y: number,
+    message: ChatMessage,
+    enabled: boolean,
+  ) => {
+    if (!enabled) return;
+    setMenuState({
+      messageId: message._id,
+      mouseX: Number(x || 0) + 2,
+      mouseY: Number(y || 0) - 6,
+    });
+  };
+
+  const clearTouchOpenTimer = () => {
+    if (!touchOpenTimerRef.current) return;
+    clearTimeout(touchOpenTimerRef.current);
+    touchOpenTimerRef.current = null;
   };
 
   const closeDeleteDialog = () => {
@@ -303,6 +333,10 @@ const MessageThread: React.FC<MessageThreadProps> = ({
         px: 1.5,
         py: 1.4,
         overflowY: 'auto',
+        scrollbarGutter: 'stable',
+        WebkitOverflowScrolling: 'touch',
+        overscrollBehavior: 'contain',
+        touchAction: 'pan-y',
         background: alpha(theme.palette.background.default, theme.palette.mode === 'dark' ? 0.5 : 0.65),
       }}
     >
@@ -363,6 +397,19 @@ const MessageThread: React.FC<MessageThreadProps> = ({
             >
               <Box
                 onContextMenu={(event) => openActionMenu(event, message, canShowContextMenu)}
+                onTouchStart={(event) => {
+                  clearTouchOpenTimer();
+                  if (!canShowContextMenu) return;
+                  const touch = event.touches?.[0];
+                  if (!touch) return;
+                  touchOpenTimerRef.current = setTimeout(() => {
+                    openActionMenuAtPoint(touch.clientX, touch.clientY, message, canShowContextMenu);
+                    touchOpenTimerRef.current = null;
+                  }, 420);
+                }}
+                onTouchEnd={clearTouchOpenTimer}
+                onTouchCancel={clearTouchOpenTimer}
+                onTouchMove={clearTouchOpenTimer}
                 sx={{
                   position: 'relative',
                   maxWidth: { xs: '90%', sm: '76%' },

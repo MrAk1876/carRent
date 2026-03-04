@@ -37,6 +37,7 @@ const SOCKET_PATH = '/socket.io';
 
 const normalizeUrl = (value: string) => String(value || '').trim().replace(/\/+$/, '');
 const parseBoolean = (value: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+const isLocalhostUrl = (value: string) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(String(value || '').trim());
 
 const isPlaceholderUrl = (value: string) => {
   const normalized = String(value || '').trim();
@@ -63,12 +64,16 @@ const resolveSocketBaseUrl = () => {
   if (explicit) return explicit;
 
   const backendTarget = toValidHttpUrl(import.meta.env.VITE_DEV_BACKEND_URL || '');
+  if (backendTarget && !(import.meta.env.PROD && isLocalhostUrl(backendTarget))) return backendTarget;
+
   if (backendTarget) return backendTarget;
 
   const apiBaseUrl = toValidHttpUrl(import.meta.env.VITE_API_BASE_URL || '');
   if (apiBaseUrl.startsWith('http://') || apiBaseUrl.startsWith('https://')) {
-    if (apiBaseUrl.endsWith('/api')) return apiBaseUrl.slice(0, -4);
-    return apiBaseUrl;
+    if (import.meta.env.PROD && isLocalhostUrl(apiBaseUrl)) {
+      // Ignore localhost API base in production builds.
+    } else if (apiBaseUrl.endsWith('/api')) return apiBaseUrl.slice(0, -4);
+    else return apiBaseUrl;
   }
 
   if (typeof window !== 'undefined') {
@@ -83,12 +88,15 @@ const shouldUsePollingOnly = (socketUrl: string) => {
   if (parseBoolean(String(import.meta.env.VITE_SOCKET_FORCE_POLLING || ''))) {
     return true;
   }
+  if (import.meta.env.DEV) {
+    return true;
+  }
   try {
     const parsed = new URL(socketUrl);
     const localHost = ['localhost', '127.0.0.1'].includes(parsed.hostname);
-    return Boolean(import.meta.env.DEV) && localHost;
+    return localHost;
   } catch {
-    return Boolean(import.meta.env.DEV);
+    return false;
   }
 };
 
@@ -140,6 +148,7 @@ class SocketClientService {
       path: SOCKET_PATH,
       transports: pollingOnly ? ['polling'] : ['polling', 'websocket'],
       upgrade: !pollingOnly,
+      rememberUpgrade: false,
       autoConnect: true,
       timeout: 10000,
       reconnection: true,

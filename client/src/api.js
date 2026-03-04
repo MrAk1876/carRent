@@ -1,7 +1,22 @@
 import axios from "axios";
 import { notifyError } from "./utils/messageBus";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
+const normalizeApiBaseUrl = (value) => String(value || "").trim().replace(/\/+$/, "");
+const isLocalhostUrl = (value) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(String(value || "").trim());
+
+const resolveApiBaseUrl = () => {
+  const configured = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || "");
+  if (!configured) return "/api";
+
+  // Guardrail for production: avoid hardcoded localhost endpoints on deployed clients.
+  if (import.meta.env.PROD && isLocalhostUrl(configured)) {
+    return "/api";
+  }
+
+  return configured;
+};
+
+const API_BASE_URL = resolveApiBaseUrl() || "/api";
 const STATIC_TENANT_CODE = String(import.meta.env.VITE_TENANT_CODE || "").trim();
 const REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 25000);
 const MAX_RETRY_COUNT = Number(import.meta.env.VITE_API_RETRY_COUNT || 2);

@@ -81,7 +81,7 @@ const Layout = () => {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-slate-50/40">
       <div className="shrink-0">
-        <NavbarOwner onMenuClick={() => setIsSidebarOpen(true)} isSidebarOpen={isSidebarOpen} />
+        <NavbarOwner onMenuClick={() => setIsSidebarOpen((prev) => !prev)} isSidebarOpen={isSidebarOpen} />
       </div>
       <div className="relative flex min-h-0 flex-1">
         <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />

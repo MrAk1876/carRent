@@ -8,6 +8,8 @@
 
 :root {
   color-scheme: light;
+  --theme-switch-x: 50vw;
+  --theme-switch-y: 40vh;
 }
 
 .theme-light {
@@ -35,6 +37,56 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-overflow-scrolling: touch;
   transition: background-color 220ms ease, color 220ms ease;
+}
+
+html.theme-animating *,
+html.theme-animating *::before,
+html.theme-animating *::after {
+  transition:
+    background-color 340ms ease,
+    color 320ms ease,
+    border-color 340ms ease,
+    box-shadow 360ms ease,
+    fill 320ms ease,
+    stroke 320ms ease !important;
+}
+
+.theme-switch-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+.theme-switch-overlay::before {
+  content: "";
+  position: absolute;
+  left: var(--theme-switch-x, 50vw);
+  top: var(--theme-switch-y, 40vh);
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0.9;
+  background:
+    radial-gradient(circle, rgba(37, 99, 235, 0.36) 0%, rgba(56, 189, 248, 0.22) 36%, rgba(255, 255, 255, 0) 72%);
+  transition: transform 560ms cubic-bezier(0.22, 1, 0.36, 1), opacity 520ms ease-out;
+}
+
+.theme-switch-overlay[data-theme="dark"]::before {
+  background:
+    radial-gradient(circle, rgba(59, 130, 246, 0.42) 0%, rgba(30, 64, 175, 0.24) 36%, rgba(15, 23, 42, 0) 72%);
+}
+
+.theme-switch-overlay[data-theme="light"]::before {
+  background:
+    radial-gradient(circle, rgba(14, 165, 233, 0.36) 0%, rgba(96, 165, 250, 0.2) 36%, rgba(255, 255, 255, 0) 72%);
+}
+
+.theme-switch-overlay.is-active::before {
+  transform: translate(-50%, -50%) scale(210);
+  opacity: 0;
 }
 
 .theme-dark body,
@@ -149,6 +201,16 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html.theme-animating *,
+  html.theme-animating *::before,
+  html.theme-animating *::after {
+    transition: none !important;
+  }
+
+  .theme-switch-overlay {
+    display: none !important;
+  }
+
   .modal-backdrop-enter,
   .modal-panel-enter {
     animation: none !important;

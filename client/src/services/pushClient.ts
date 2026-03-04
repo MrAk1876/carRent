@@ -25,6 +25,21 @@ const canUsePushNotifications = () =>
   'PushManager' in window &&
   'Notification' in window;
 
+const unregisterAllServiceWorkers = async () => {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+  } catch {
+    // Silent cleanup fallback.
+  }
+};
+
+export const disablePushServiceWorkerInDev = async () => {
+  if (!import.meta.env.DEV) return;
+  await unregisterAllServiceWorkers();
+};
+
 const registerServiceWorker = async () => {
   const existing = await navigator.serviceWorker.getRegistration();
   if (existing && String(existing.active?.scriptURL || existing.installing?.scriptURL || '').includes(SERVICE_WORKER_PATH)) {
@@ -71,6 +86,10 @@ const subscribeToPush = async () => {
 };
 
 export const initPushClient = async () => {
+  if (import.meta.env.DEV) {
+    await disablePushServiceWorkerInDev();
+    return;
+  }
   if (!canUsePushNotifications()) return;
   const token = String(localStorage.getItem('token') || '').trim();
   if (!token) return;
@@ -94,6 +113,10 @@ export const initPushClient = async () => {
 };
 
 export const requestPushPermissionAndSubscribe = async () => {
+  if (import.meta.env.DEV) {
+    await disablePushServiceWorkerInDev();
+    return { ok: false, permission: 'disabled-in-dev' };
+  }
   if (!VAPID_PUBLIC_KEY) {
     return { ok: false, permission: 'missing-vapid-key' };
   }

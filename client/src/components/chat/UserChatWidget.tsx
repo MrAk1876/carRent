@@ -355,6 +355,15 @@ const UserChatWidget: React.FC<UserChatWidgetProps> = ({
     };
   }, [currentUserId, loadConversation, syncUnreadCount]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
   const handleSendMessage = useCallback(async (content: string) => {
     let receiverId = peerUserId;
     if (!receiverId) {
@@ -400,16 +409,24 @@ const UserChatWidget: React.FC<UserChatWidgetProps> = ({
   if (typeof document === 'undefined') return null;
 
   const widget = (
-    <Box sx={{ position: 'fixed', right: { xs: 12, sm: 18 }, bottom: { xs: 12, sm: 18 }, zIndex: 1300 }}>
+    <Box
+      sx={{
+        position: 'fixed',
+        right: { xs: 8, sm: 18 },
+        bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 8px)', sm: 18 },
+        zIndex: 1300,
+      }}
+    >
       {open ? (
         <Paper
           elevation={0}
           sx={{
-            width: { xs: 'calc(100vw - 24px)', sm: 370 },
-            maxWidth: 'calc(100vw - 24px)',
-            height: { xs: 'min(75vh, 600px)', sm: 540 },
-            mb: 1.2,
-            borderRadius: 3,
+            width: { xs: 'calc(100vw - 16px)', sm: 370 },
+            maxWidth: { xs: 'calc(100vw - 16px)', sm: 370 },
+            height: { xs: 'min(calc(100dvh - 90px), 720px)', sm: 540 },
+            maxHeight: { xs: 'calc(100dvh - 90px)', sm: 540 },
+            mb: { xs: 0.6, sm: 1.2 },
+            borderRadius: { xs: 2.2, sm: 3 },
             border: '1px solid',
             borderColor: alpha(theme.palette.divider, theme.palette.mode === 'dark' ? 0.72 : 0.9),
             boxShadow: `0 26px 60px ${alpha(theme.palette.common.black, theme.palette.mode === 'dark' ? 0.62 : 0.2)}`,
@@ -419,6 +436,8 @@ const UserChatWidget: React.FC<UserChatWidgetProps> = ({
             backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.84 : 0.96),
             transform: 'translateY(0)',
             transition: 'opacity 180ms ease, transform 180ms ease',
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehavior: 'contain',
           }}
         >
           <Stack
