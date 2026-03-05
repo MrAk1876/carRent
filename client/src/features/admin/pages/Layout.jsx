@@ -14,6 +14,7 @@ const SECTION_SCROLL_ROUTES = new Set([
   '/owner/rental-tracking',
   '/owner/analytics',
   '/owner/manage-subscriptions',
+  '/owner/deposit-rules',
   '/owner/subscription-plans',
   '/owner/fleet-overview',
   '/owner/drivers',
@@ -22,6 +23,7 @@ const SECTION_SCROLL_ROUTES = new Set([
   '/owner/reviews',
   '/owner/manage-roles',
   '/owner/categories',
+  '/owner/settings',
 ]);
 
 const adminContentTransition = {

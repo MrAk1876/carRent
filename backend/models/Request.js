@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
 const tenantScopedPlugin = require('../plugins/tenantScopedPlugin');
+const {
+  normalizeRentalDaysValue,
+  calculateRentalDaysByCalendar,
+  calculateFixedDropDateTime,
+} = require('../utils/rentalDateUtils');
+const { RANGE_TYPE_VALUES, normalizeRangeType } = require('../utils/depositRangeUtils');
 
 const requestSchema = new mongoose.Schema(
   {
@@ -44,6 +50,11 @@ const requestSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    rentalDays: {
+      type: Number,
+      min: 1,
+      default: 1,
+    },
     gracePeriodHours: {
       type: Number,
       min: 0,
@@ -53,6 +64,22 @@ const requestSchema = new mongoose.Schema(
     days: {
       type: Number,
       required: true,
+    },
+    priceRangeType: {
+      type: String,
+      enum: RANGE_TYPE_VALUES,
+      default: 'LOW_RANGE',
+    },
+    depositAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    depositRuleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'DepositRule',
+      default: null,
+      index: true,
     },
 
     totalAmount: {
@@ -244,10 +271,45 @@ requestSchema.pre('validate', function syncDynamicPaymentFields() {
     this.toDate = this.dropDateTime;
   }
 
+  const shouldEnforceFixedDropTime = this.isNew || this.isModified('rentalDays');
+  const normalizedRentalDays =
+    normalizeRentalDaysValue(this.rentalDays, { min: 1, max: 3650, allowNull: true }) ||
+    normalizeRentalDaysValue(
+      calculateRentalDaysByCalendar(this.pickupDateTime || this.fromDate, this.dropDateTime || this.toDate),
+      { min: 1, max: 3650, allowNull: true },
+    ) ||
+    1;
+
+  this.rentalDays = normalizedRentalDays;
+
+  const policyRentalDays = normalizeRentalDaysValue(normalizedRentalDays, { allowNull: true });
+  if (shouldEnforceFixedDropTime && policyRentalDays) {
+    const fixedDropDateTime = calculateFixedDropDateTime(
+      this.pickupDateTime || this.fromDate,
+      policyRentalDays,
+    );
+    if (fixedDropDateTime) {
+      this.dropDateTime = fixedDropDateTime;
+      this.toDate = fixedDropDateTime;
+    }
+  }
+
   const normalizedGracePeriodHours = Number(this.gracePeriodHours);
   if (!Number.isFinite(normalizedGracePeriodHours) || normalizedGracePeriodHours < 0) {
     this.gracePeriodHours = 1;
   }
+
+  const normalizedBillingDays = Number(this.days);
+  if (!Number.isFinite(normalizedBillingDays) || normalizedBillingDays <= 0) {
+    this.days = Number(this.rentalDays || 1);
+  }
+
+  this.priceRangeType = normalizeRangeType(this.priceRangeType, 'LOW_RANGE');
+  const normalizedDepositAmount = Number(this.depositAmount || 0);
+  this.depositAmount =
+    Number.isFinite(normalizedDepositAmount) && normalizedDepositAmount >= 0
+      ? Number(normalizedDepositAmount.toFixed(2))
+      : 0;
 
   const totalAmount = Number(this.totalAmount || 0);
   const finalAmount = Number(this.finalAmount || 0);

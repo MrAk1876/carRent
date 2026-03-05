@@ -73,6 +73,8 @@ const {
 } = require('../services/subscriptionService');
 const { resolveSmartPriceForCar, clearSmartPricingCache } = require('../services/smartPricingService');
 const { assertTenantEntityLimit } = require('../services/tenantLimitService');
+const { normalizeRentalDaysValue, calculateRentalDaysByCalendar } = require('../utils/rentalDateUtils');
+const { resolveDepositSettlementSnapshot } = require('../utils/depositSettlementUtils');
 
 const MIN_PASSWORD_LENGTH = 8;
 const LATE_RATE_MULTIPLIER = 1.5;
@@ -100,6 +102,7 @@ const CAR_EDITABLE_FIELDS = [
   'transmission',
   'location',
   'pricePerDay',
+  'priceRangeType',
   'registrationNumber',
   'chassisNumber',
   'engineNumber',
@@ -820,6 +823,11 @@ exports.approveRequest = async (req, res) => {
     subscriptionReservation = reservation;
     const finalAmount = Number(confirmedPricing?.finalAmount || resolveFinalAmount(request) || 0);
     const breakdown = calculateAdvanceBreakdown(finalAmount);
+    const resolvedDepositAmount = Number.isFinite(Number(request.depositAmount))
+      ? Math.max(Number(request.depositAmount), 0)
+      : 0;
+    const effectiveAdvanceRequired = Math.max(Number(breakdown.advanceRequired || 0), resolvedDepositAmount);
+    const effectiveRemainingAmount = Math.max(Number(breakdown.finalAmount || 0) - effectiveAdvanceRequired, 0);
 
     let finalBargain;
     if (request.bargain && request.bargain.status !== 'NONE') {
@@ -837,6 +845,25 @@ exports.approveRequest = async (req, res) => {
       toDate: request.toDate,
       pickupDateTime: request.pickupDateTime || request.fromDate,
       dropDateTime: request.dropDateTime || request.toDate,
+      rentalDays:
+        normalizeRentalDaysValue(request.rentalDays, { min: 1, max: 3650, allowNull: true }) ||
+        normalizeRentalDaysValue(
+          calculateRentalDaysByCalendar(request.pickupDateTime || request.fromDate, request.dropDateTime || request.toDate),
+          { min: 1, max: 3650, allowNull: true },
+        ) ||
+        1,
+      priceRangeType: String(request.priceRangeType || '').trim() || 'LOW_RANGE',
+      depositAmount: Number.isFinite(Number(request.depositAmount))
+        ? Math.max(Number(request.depositAmount), 0)
+        : 0,
+      depositPaid: Number.isFinite(Number(request.depositAmount))
+        ? Math.max(Number(request.depositAmount), 0)
+        : 0,
+      depositRefunded: 0,
+      depositDeducted: 0,
+      depositStatus: Number.isFinite(Number(request.depositAmount)) && Number(request.depositAmount) > 0
+        ? 'HELD'
+        : 'NOT_APPLICABLE',
       actualPickupTime: null,
       actualReturnTime: null,
       gracePeriodHours: Number.isFinite(Number(request.gracePeriodHours))
@@ -851,10 +878,13 @@ exports.approveRequest = async (req, res) => {
       priceSource: request?.priceSource || 'Base',
       priceAdjustmentPercent: Number(request?.priceAdjustmentPercent || 0),
       finalAmount: breakdown.finalAmount,
-      advanceAmount: breakdown.advanceRequired,
-      advanceRequired: breakdown.advanceRequired,
-      advancePaid: breakdown.advanceRequired,
-      remainingAmount: breakdown.remainingAmount,
+      totalRentalAmount: breakdown.finalAmount,
+      advanceAmount: effectiveAdvanceRequired,
+      advanceRequired: effectiveAdvanceRequired,
+      advancePaid: effectiveAdvanceRequired,
+      remainingAmount: effectiveRemainingAmount,
+      amountPaid: effectiveAdvanceRequired,
+      amountRemaining: effectiveRemainingAmount,
       rentalType: confirmedPricing?.rentalType || normalizeRentalType(request?.rentalType, 'OneTime'),
       subscriptionPlanId: confirmedPricing?.subscriptionPlanId || request?.subscriptionPlanId || null,
       userSubscriptionId: confirmedPricing?.userSubscriptionId || request?.userSubscriptionId || null,
@@ -866,7 +896,7 @@ exports.approveRequest = async (req, res) => {
       subscriptionDamageFeeDiscountPercentage: confirmedPricing?.subscriptionDamageFeeDiscountPercentage || 0,
       paymentMethod: request.paymentMethod || 'NONE',
       paymentStatus: 'Partially Paid',
-      fullPaymentAmount: breakdown.remainingAmount,
+      fullPaymentAmount: effectiveRemainingAmount,
       fullPaymentMethod: 'NONE',
       fullPaymentReceivedAt: null,
       bookingStatus: 'Confirmed',
@@ -981,9 +1011,17 @@ exports.submitReturnInspection = async (req, res) => {
       return res.status(422).json({ message: `You can upload up to ${MAX_INSPECTION_IMAGES} inspection images` });
     }
 
-    const damageDetected = parseBooleanInput(req.body?.damageDetected, false);
+    const requestedDamageStatus = String(req.body?.damageStatus || '').trim().toUpperCase();
+    const requestedDamageLevel = String(req.body?.damageLevel || '').trim().toUpperCase();
+    const explicitDamageStatus = ['NONE', 'MINOR', 'MAJOR'].includes(requestedDamageStatus)
+      ? requestedDamageStatus
+      : '';
+    const parsedDamageDetected = parseBooleanInput(
+      req.body?.damageDetected,
+      explicitDamageStatus ? explicitDamageStatus !== 'NONE' : false,
+    );
     const requestedDamageCost = Number(req.body?.damageCost);
-    if (damageDetected && (!Number.isFinite(requestedDamageCost) || requestedDamageCost < 0)) {
+    if (parsedDamageDetected && (!Number.isFinite(requestedDamageCost) || requestedDamageCost < 0)) {
       return res.status(422).json({ message: 'damageCost must be a non-negative number when damage is detected' });
     }
 
@@ -995,17 +1033,35 @@ exports.submitReturnInspection = async (req, res) => {
       return res.status(422).json({ message: 'currentMileage must be a non-negative number' });
     }
 
-    const originalDamageCost = damageDetected ? toNonNegativeNumber(requestedDamageCost, 0) : 0;
+    const originalDamageCost = parsedDamageDetected ? toNonNegativeNumber(requestedDamageCost, 0) : 0;
     const subscriptionDamageDiscountPercent = getSubscriptionDamageFeeDiscountPercent(booking);
+    const normalizedDamageStatus = explicitDamageStatus
+      || (!parsedDamageDetected
+        ? 'NONE'
+        : requestedDamageLevel === 'MAJOR_DAMAGE'
+          ? 'MAJOR'
+          : requestedDamageLevel === 'MINOR_DAMAGE'
+            ? 'MINOR'
+            : originalDamageCost > Math.max(Number(booking?.depositAmount || 0), 0)
+              ? 'MAJOR'
+              : 'MINOR');
+    const damageDetected = normalizedDamageStatus !== 'NONE';
     const damageCost = damageDetected
       ? applyPercentageDiscount(originalDamageCost, subscriptionDamageDiscountPercent)
       : 0;
+    const normalizedDamageLevel = normalizedDamageStatus === 'MAJOR'
+      ? 'MAJOR_DAMAGE'
+      : normalizedDamageStatus === 'MINOR'
+        ? 'MINOR_DAMAGE'
+        : 'NO_DAMAGE';
     const currentMileage = hasMileageInput ? toNonNegativeNumber(parsedCurrentMileage, 0) : null;
     uploadedImages = await uploadInspectionImages(imageFiles, 'car-rental/inspections/return');
 
     booking.returnInspection = {
       conditionNotes,
       damageDetected,
+      damageStatus: normalizedDamageStatus,
+      damageLevel: normalizedDamageLevel,
       originalDamageCost,
       damageDiscountPercentage: subscriptionDamageDiscountPercent,
       damageCost,
@@ -1019,10 +1075,16 @@ exports.submitReturnInspection = async (req, res) => {
     const finalAmount = Math.max(toNonNegativeNumber(resolveFinalAmount(booking), 0), 0);
     const advancePaid = Math.max(toNonNegativeNumber(resolveAdvancePaidAmount(booking), 0), 0);
     const lateFee = Math.max(toNonNegativeNumber(booking?.lateFee, 0), 0);
+    const depositSnapshot = resolveDepositSettlementSnapshot({ booking, damageCost });
     const baseRemainingWithoutDamage = Math.max(Number((finalAmount - advancePaid).toFixed(2)), 0) + lateFee;
     const existingRemaining = toNonNegativeNumber(booking?.remainingAmount, baseRemainingWithoutDamage);
     const mergedRemainingBase = Math.max(existingRemaining, baseRemainingWithoutDamage);
-    booking.remainingAmount = Number((mergedRemainingBase + damageCost).toFixed(2));
+    booking.remainingAmount = Number((mergedRemainingBase + depositSnapshot.damageOutstanding).toFixed(2));
+    booking.amountRemaining = booking.remainingAmount;
+    booking.depositPaid = depositSnapshot.heldDeposit;
+    booking.depositDeducted = depositSnapshot.depositDeducted;
+    booking.depositRefunded = depositSnapshot.depositRefunded;
+    booking.depositStatus = depositSnapshot.depositStatus;
 
     await booking.save();
 

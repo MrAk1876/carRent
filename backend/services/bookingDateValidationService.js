@@ -1,21 +1,22 @@
 const mongoose = require('mongoose');
 const { resolveAvailabilityConflict } = require('./conflictResolver');
-
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const MIN_RENTAL_DAYS = 1;
-const MAX_RENTAL_DAYS = 30;
+const {
+  MIN_RENTAL_DAYS,
+  MAX_RENTAL_DAYS,
+  normalizeRentalDaysValue,
+  resolveRentalDaysForFixedDrop,
+  calculateFixedDropDateTime,
+} = require('../utils/rentalDateUtils');
 
 const VALIDATION_RULE = Object.freeze({
   VALID: 'VALID',
   INVALID_CAR_ID: 'INVALID_CAR_ID',
   CAR_NOT_FOUND: 'CAR_NOT_FOUND',
   MISSING_PICKUP_DATE: 'MISSING_PICKUP_DATE',
-  MISSING_DROP_DATE: 'MISSING_DROP_DATE',
   INVALID_PICKUP_DATE: 'INVALID_PICKUP_DATE',
-  INVALID_DROP_DATE: 'INVALID_DROP_DATE',
+  MISSING_RENTAL_DAYS: 'MISSING_RENTAL_DAYS',
+  INVALID_RENTAL_DAYS: 'INVALID_RENTAL_DAYS',
   PICKUP_IN_PAST: 'PICKUP_IN_PAST',
-  DROP_BEFORE_PICKUP: 'DROP_BEFORE_PICKUP',
-  SAME_DAY_DROP_NOT_ALLOWED: 'SAME_DAY_DROP_NOT_ALLOWED',
   MIN_RENTAL_NOT_MET: 'MIN_RENTAL_NOT_MET',
   MAX_RENTAL_EXCEEDED: 'MAX_RENTAL_EXCEEDED',
   DATES_NOT_AVAILABLE: 'DATES_NOT_AVAILABLE',
@@ -37,6 +38,13 @@ const toStartOfDay = (value) => {
   return parsed;
 };
 
+const parseDateInput = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
 const buildResult = ({
   valid,
   reason = '',
@@ -54,14 +62,10 @@ const buildResult = ({
 });
 
 const resolveDateInput = (body = {}) => {
-  const pickupDate = body.pickupDate || body.fromDate || body.startDate;
-  const dropDate = body.dropDate || body.toDate || body.endDate;
-  return { pickupDate, dropDate };
-};
-
-const calculateRentalDays = (pickupDate, dropDate) => {
-  if (!pickupDate || !dropDate) return 0;
-  return Math.floor((dropDate.getTime() - pickupDate.getTime()) / ONE_DAY_MS);
+  const pickupDate = body.pickupDate || body.fromDate || body.startDate || body.pickupDateTime;
+  const dropDate = body.dropDate || body.toDate || body.endDate || body.dropDateTime;
+  const rentalDays = body.rentalDays ?? body.days;
+  return { pickupDate, dropDate, rentalDays };
 };
 
 const validateBookingDates = async (options = {}) => {
@@ -69,6 +73,7 @@ const validateBookingDates = async (options = {}) => {
     carId,
     pickupDate,
     dropDate,
+    rentalDays,
     now = new Date(),
     minRentalDays = MIN_RENTAL_DAYS,
     maxRentalDays = MAX_RENTAL_DAYS,
@@ -91,33 +96,89 @@ const validateBookingDates = async (options = {}) => {
     });
   }
 
-  if (!dropDate) {
-    return buildResult({
-      valid: false,
-      ruleViolated: VALIDATION_RULE.MISSING_DROP_DATE,
-      reason: 'dropDate is required',
-    });
-  }
-
-  const pickup = toStartOfDay(pickupDate);
-  if (!pickup) {
+  const pickupDateTime = parseDateInput(pickupDate);
+  if (!pickupDateTime) {
     return buildResult({
       valid: false,
       ruleViolated: VALIDATION_RULE.INVALID_PICKUP_DATE,
-      reason: 'Invalid pickupDate. Expected YYYY-MM-DD',
+      reason: 'Invalid pickupDate. Expected ISO date/date-time',
     });
   }
 
-  const drop = toStartOfDay(dropDate);
-  if (!drop) {
+  const safeMinDays = Math.max(Number(minRentalDays || MIN_RENTAL_DAYS), 1);
+  const safeMaxDays = Math.max(Number(maxRentalDays || MAX_RENTAL_DAYS), safeMinDays);
+
+  const legacyDropDateTime = parseDateInput(dropDate);
+  const resolvedRentalDays = resolveRentalDaysForFixedDrop({
+    rentalDays,
+    pickupDateTime,
+    dropDateTime: legacyDropDateTime,
+    min: safeMinDays,
+    max: safeMaxDays,
+  });
+
+  if (!resolvedRentalDays) {
+    if (rentalDays === undefined || rentalDays === null || rentalDays === '') {
+      return buildResult({
+        valid: false,
+        ruleViolated: VALIDATION_RULE.MISSING_RENTAL_DAYS,
+        reason: 'rentalDays is required',
+      });
+    }
+
+    const numericRentalDays = normalizeRentalDaysValue(rentalDays, {
+      min: safeMinDays,
+      max: safeMaxDays,
+      allowNull: true,
+    });
+
+    if (!numericRentalDays) {
+      return buildResult({
+        valid: false,
+        ruleViolated:
+          Number(rentalDays) < safeMinDays
+            ? VALIDATION_RULE.MIN_RENTAL_NOT_MET
+            : VALIDATION_RULE.MAX_RENTAL_EXCEEDED,
+        reason:
+          Number(rentalDays) < safeMinDays
+            ? `Minimum rental duration is ${safeMinDays} day`
+            : `Maximum rental duration is ${safeMaxDays} days`,
+        details: {
+          rentalDays: Number(rentalDays),
+          minRentalDays: safeMinDays,
+          maxRentalDays: safeMaxDays,
+        },
+      });
+    }
+
     return buildResult({
       valid: false,
-      ruleViolated: VALIDATION_RULE.INVALID_DROP_DATE,
-      reason: 'Invalid dropDate. Expected YYYY-MM-DD',
+      ruleViolated: VALIDATION_RULE.INVALID_RENTAL_DAYS,
+      reason: `rentalDays must be between ${safeMinDays} and ${safeMaxDays}`,
     });
   }
 
+  const computedDropDateTime = calculateFixedDropDateTime(pickupDateTime, resolvedRentalDays);
+  if (!computedDropDateTime) {
+    return buildResult({
+      valid: false,
+      ruleViolated: VALIDATION_RULE.INVALID_RENTAL_DAYS,
+      reason: 'Unable to derive drop date from rentalDays',
+    });
+  }
+
+  const pickup = toStartOfDay(pickupDateTime);
+  const drop = toStartOfDay(computedDropDateTime);
   const today = toStartOfDay(now) || toStartOfDay(new Date());
+
+  if (!pickup || !drop || !today) {
+    return buildResult({
+      valid: false,
+      ruleViolated: VALIDATION_RULE.INVALID_PICKUP_DATE,
+      reason: 'Invalid booking date values',
+    });
+  }
+
   if (pickup.getTime() < today.getTime()) {
     return buildResult({
       valid: false,
@@ -130,67 +191,11 @@ const validateBookingDates = async (options = {}) => {
     });
   }
 
-  if (drop.getTime() < pickup.getTime()) {
-    return buildResult({
-      valid: false,
-      ruleViolated: VALIDATION_RULE.DROP_BEFORE_PICKUP,
-      reason: 'Drop date must be after pickup date',
-      details: {
-        pickupDate: toDateOnlyKey(pickup),
-        dropDate: toDateOnlyKey(drop),
-      },
-    });
-  }
-
-  if (drop.getTime() === pickup.getTime()) {
-    return buildResult({
-      valid: false,
-      ruleViolated: VALIDATION_RULE.SAME_DAY_DROP_NOT_ALLOWED,
-      reason: 'Same-day drop is not allowed',
-      details: {
-        pickupDate: toDateOnlyKey(pickup),
-        dropDate: toDateOnlyKey(drop),
-      },
-    });
-  }
-
-  const rentalDays = calculateRentalDays(pickup, drop);
-  const safeMinDays = Math.max(Number(minRentalDays || MIN_RENTAL_DAYS), 1);
-  const safeMaxDays = Math.max(Number(maxRentalDays || MAX_RENTAL_DAYS), safeMinDays);
-
-  if (rentalDays < safeMinDays) {
-    return buildResult({
-      valid: false,
-      ruleViolated: VALIDATION_RULE.MIN_RENTAL_NOT_MET,
-      reason: `Minimum rental duration is ${safeMinDays} day`,
-      details: {
-        pickupDate: toDateOnlyKey(pickup),
-        dropDate: toDateOnlyKey(drop),
-        rentalDays,
-        minRentalDays: safeMinDays,
-      },
-    });
-  }
-
-  if (rentalDays > safeMaxDays) {
-    return buildResult({
-      valid: false,
-      ruleViolated: VALIDATION_RULE.MAX_RENTAL_EXCEEDED,
-      reason: `Maximum rental duration is ${safeMaxDays} days`,
-      details: {
-        pickupDate: toDateOnlyKey(pickup),
-        dropDate: toDateOnlyKey(drop),
-        rentalDays,
-        maxRentalDays: safeMaxDays,
-      },
-    });
-  }
-
   try {
     const availability = await resolveAvailabilityConflict({
       carId: normalizedCarId,
-      startDate: pickup,
-      endDate: drop,
+      startDate: pickupDateTime,
+      endDate: computedDropDateTime,
     });
 
     if (!availability.valid) {
@@ -202,8 +207,8 @@ const validateBookingDates = async (options = {}) => {
         conflictReason: availability.conflictReason || '',
         details: {
           pickupDate: toDateOnlyKey(pickup),
-          dropDate: toDateOnlyKey(drop),
-          rentalDays,
+          computedDropDate: toDateOnlyKey(drop),
+          rentalDays: resolvedRentalDays,
           availabilitySummary: availability.summary || {},
         },
       });
@@ -236,8 +241,10 @@ const validateBookingDates = async (options = {}) => {
     details: {
       carId: normalizedCarId,
       pickupDate: toDateOnlyKey(pickup),
-      dropDate: toDateOnlyKey(drop),
-      rentalDays,
+      computedDropDate: toDateOnlyKey(drop),
+      computedDropDateTime: computedDropDateTime.toISOString(),
+      dropTimePolicy: '06:00',
+      rentalDays: resolvedRentalDays,
       minRentalDays: safeMinDays,
       maxRentalDays: safeMaxDays,
       evaluatedAvailabilityState: 'AVAILABLE',

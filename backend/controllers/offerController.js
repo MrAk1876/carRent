@@ -10,11 +10,14 @@ const { applyCarScopeToQuery, assertCarInScope } = require('../services/adminSco
 const mongoose = require('mongoose');
 const { queuePendingPaymentEmailForRequest } = require('../services/bookingEmailNotificationService');
 const { resolveSmartPriceForCar, buildPricingAmounts } = require('../services/smartPricingService');
+const { resolveDepositForCar } = require('../services/depositRuleService');
 const {
   normalizeStoredDateTime,
   validateRentalWindow,
   calculateTimeBasedRentalAmount,
   getTimeBasedBillingDays,
+  calculateFixedDropDateTime,
+  resolveRentalDaysForFixedDrop,
 } = require('../utils/rentalDateUtils');
 const { isStaffRole } = require('../utils/rbac');
 
@@ -64,9 +67,19 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
   }
 
   const normalizedPickupDateTime = normalizeStoredDateTime(offer.fromDate);
-  const normalizedDropDateTime = normalizeStoredDateTime(offer.toDate, {
+  const legacyDropDateTime = normalizeStoredDateTime(offer.toDate, {
     treatMidnightAsDropBoundary: true,
   });
+  const resolvedRentalDays = resolveRentalDaysForFixedDrop({
+    rentalDays: offer?.rentalDays,
+    pickupDateTime: normalizedPickupDateTime,
+    dropDateTime: legacyDropDateTime,
+  });
+  if (!resolvedRentalDays) {
+    return { error: { status: 422, message: 'Offer booking duration is invalid' } };
+  }
+
+  const normalizedDropDateTime = calculateFixedDropDateTime(normalizedPickupDateTime, resolvedRentalDays);
   const rentalWindowError = validateRentalWindow(normalizedPickupDateTime, normalizedDropDateTime, {
     minDurationHours: 1,
     now: new Date(),
@@ -148,7 +161,16 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     lockedPerDayPrice: lockedPerDayFromOffer,
     billingDays: days,
   });
+  const depositInfo = await resolveDepositForCar({
+    car: activeCar,
+    perDayPrice: lockedPerDayFromOffer,
+  });
   const breakdown = calculateAdvanceBreakdown(finalAmount);
+  const resolvedDepositAmount = Number.isFinite(Number(depositInfo.depositAmount))
+    ? Math.max(Number(depositInfo.depositAmount), 0)
+    : 0;
+  const effectiveAdvanceRequired = Math.max(Number(breakdown.advanceRequired || 0), resolvedDepositAmount);
+  const effectiveRemainingAmount = Math.max(Number(breakdown.finalAmount || 0) - effectiveAdvanceRequired, 0);
 
   const lockedBargain = {
     userAttempts: offer.offerCount,
@@ -165,15 +187,19 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     const shouldKeepPaidState =
       isAdvancePaidStatus(existingPendingRequest.paymentStatus) &&
       previousTotal === finalAmount &&
-      previousAdvance === breakdown.advanceRequired;
+      previousAdvance === effectiveAdvanceRequired;
 
     existingPendingRequest.days = days;
     existingPendingRequest.fromDate = normalizedPickupDateTime;
     existingPendingRequest.toDate = normalizedDropDateTime;
     existingPendingRequest.pickupDateTime = normalizedPickupDateTime;
     existingPendingRequest.dropDateTime = normalizedDropDateTime;
+    existingPendingRequest.rentalDays = resolvedRentalDays;
     existingPendingRequest.gracePeriodHours = 1;
     existingPendingRequest.branchId = existingPendingRequest.branchId || branch?._id || null;
+    existingPendingRequest.priceRangeType = depositInfo.rangeType;
+    existingPendingRequest.depositAmount = depositInfo.depositAmount;
+    existingPendingRequest.depositRuleId = depositInfo.ruleId || null;
     existingPendingRequest.totalAmount = breakdown.finalAmount;
     existingPendingRequest.lockedPerDayPrice = pricingAmounts.lockedPerDayPrice;
     existingPendingRequest.basePerDayPrice = pricingAmounts.basePerDayPrice;
@@ -182,8 +208,8 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     existingPendingRequest.priceSource = pricingSnapshot?.priceSource || 'Base';
     existingPendingRequest.priceAdjustmentPercent = Number(pricingSnapshot?.priceAdjustmentPercent || 0);
     existingPendingRequest.finalAmount = breakdown.finalAmount;
-    existingPendingRequest.advanceAmount = breakdown.advanceRequired;
-    existingPendingRequest.advanceRequired = breakdown.advanceRequired;
+    existingPendingRequest.advanceAmount = effectiveAdvanceRequired;
+    existingPendingRequest.advanceRequired = effectiveAdvanceRequired;
     existingPendingRequest.bargain = lockedBargain;
     if (!shouldKeepPaidState) {
       existingPendingRequest.paymentStatus = 'UNPAID';
@@ -191,10 +217,10 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
       existingPendingRequest.paymentReference = '';
       existingPendingRequest.advancePaidAt = null;
       existingPendingRequest.advancePaid = 0;
-      existingPendingRequest.remainingAmount = breakdown.remainingAmount;
+      existingPendingRequest.remainingAmount = effectiveRemainingAmount;
     } else {
-      existingPendingRequest.advancePaid = breakdown.advanceRequired;
-      existingPendingRequest.remainingAmount = breakdown.remainingAmount;
+      existingPendingRequest.advancePaid = effectiveAdvanceRequired;
+      existingPendingRequest.remainingAmount = effectiveRemainingAmount;
     }
     await existingPendingRequest.save();
     if (!shouldKeepPaidState) {
@@ -212,8 +238,12 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     toDate: normalizedDropDateTime,
     pickupDateTime: normalizedPickupDateTime,
     dropDateTime: normalizedDropDateTime,
+    rentalDays: resolvedRentalDays,
     gracePeriodHours: 1,
     days,
+    priceRangeType: depositInfo.rangeType,
+    depositAmount: depositInfo.depositAmount,
+    depositRuleId: depositInfo.ruleId || null,
     totalAmount: breakdown.finalAmount,
     lockedPerDayPrice: pricingAmounts.lockedPerDayPrice,
     basePerDayPrice: pricingAmounts.basePerDayPrice,
@@ -222,10 +252,10 @@ const createFinalApprovalRequestFromOffer = async (offer) => {
     priceSource: pricingSnapshot?.priceSource || 'Base',
     priceAdjustmentPercent: Number(pricingSnapshot?.priceAdjustmentPercent || 0),
     finalAmount: breakdown.finalAmount,
-    advanceAmount: breakdown.advanceRequired,
-    advanceRequired: breakdown.advanceRequired,
+    advanceAmount: effectiveAdvanceRequired,
+    advanceRequired: effectiveAdvanceRequired,
     advancePaid: 0,
-    remainingAmount: breakdown.remainingAmount,
+    remainingAmount: effectiveRemainingAmount,
     paymentStatus: 'UNPAID',
     paymentMethod: 'NONE',
     bargain: lockedBargain,

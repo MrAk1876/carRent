@@ -2,6 +2,7 @@ const Booking = require('../models/Booking');
 const { normalizeStatusKey, isAdvancePaidStatus, isFullyPaidStatus } = require('../utils/paymentUtils');
 const { queueOverdueAlertEmail } = require('./bookingEmailNotificationService');
 const { getSubscriptionLateFeeDiscountPercent, applyPercentageDiscount } = require('./subscriptionService');
+const { resolveDepositSettlementSnapshot } = require('../utils/depositSettlementUtils');
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const LATE_RATE_MULTIPLIER = 1.5;
@@ -202,7 +203,10 @@ const buildLateFeeSnapshot = (booking, effectiveStage, now) => {
   const finalAmount = resolveFinalAmount(booking);
   const advancePaid = resolveAdvancePaidAmount(booking);
   const damageCost = resolveDamageCost(booking);
-  const remainingAmount = roundCurrency(Math.max(finalAmount - advancePaid, 0) + lateFee + damageCost);
+  const depositSnapshot = resolveDepositSettlementSnapshot({ booking, damageCost });
+  const remainingAmount = roundCurrency(
+    Math.max(finalAmount - advancePaid, 0) + lateFee + depositSnapshot.damageOutstanding,
+  );
 
   return {
     hourlyLateRate,

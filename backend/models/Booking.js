@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
 const tenantScopedPlugin = require('../plugins/tenantScopedPlugin');
+const {
+  normalizeRentalDaysValue,
+  calculateRentalDaysByCalendar,
+  calculateFixedDropDateTime,
+} = require('../utils/rentalDateUtils');
+const { RANGE_TYPE_VALUES, normalizeRangeType } = require('../utils/depositRangeUtils');
 
 const PAYMENT_DEADLINE_WINDOW_MS = 15 * 60 * 1000;
 const MAX_INSPECTION_IMAGES = 12;
@@ -48,6 +54,16 @@ const returnInspectionSchema = new mongoose.Schema(
     damageDetected: {
       type: Boolean,
       default: false,
+    },
+    damageLevel: {
+      type: String,
+      enum: ['NO_DAMAGE', 'MINOR_DAMAGE', 'MAJOR_DAMAGE'],
+      default: 'NO_DAMAGE',
+    },
+    damageStatus: {
+      type: String,
+      enum: ['NONE', 'MINOR', 'MAJOR'],
+      default: 'NONE',
     },
     damageCost: {
       type: Number,
@@ -168,6 +184,11 @@ const bookingSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    rentalDays: {
+      type: Number,
+      min: 1,
+      default: 1,
+    },
     pickupLocation: {
       type: geoLocationSchema,
       default: undefined,
@@ -193,6 +214,52 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       enum: ['Scheduled', 'Active', 'Overdue', 'Completed'],
       default: undefined,
+    },
+    priceRangeType: {
+      type: String,
+      enum: RANGE_TYPE_VALUES,
+      default: 'LOW_RANGE',
+    },
+    depositAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    depositPaid: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    depositRefunded: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    depositDeducted: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    depositStatus: {
+      type: String,
+      enum: ['NOT_APPLICABLE', 'HELD', 'REFUNDED', 'DEDUCTED', 'PARTIALLY_DEDUCTED'],
+      default: 'NOT_APPLICABLE',
+      index: true,
+    },
+    totalRentalAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    amountPaid: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    amountRemaining: {
+      type: Number,
+      min: 0,
+      default: 0,
     },
 
     totalAmount: {
@@ -618,12 +685,75 @@ bookingSchema.pre('validate', function syncPaymentFields() {
     this.toDate = this.dropDateTime;
   }
 
+  const shouldEnforceFixedDropTime = this.isNew || this.isModified('rentalDays');
+  const normalizedRentalDays =
+    normalizeRentalDaysValue(this.rentalDays, { min: 1, max: 3650, allowNull: true }) ||
+    normalizeRentalDaysValue(
+      calculateRentalDaysByCalendar(this.pickupDateTime || this.fromDate, this.dropDateTime || this.toDate),
+      { min: 1, max: 3650, allowNull: true },
+    ) ||
+    1;
+
+  this.rentalDays = normalizedRentalDays;
+
+  const policyRentalDays = normalizeRentalDaysValue(normalizedRentalDays, { allowNull: true });
+  if (shouldEnforceFixedDropTime && policyRentalDays) {
+    const fixedDropDateTime = calculateFixedDropDateTime(
+      this.pickupDateTime || this.fromDate,
+      policyRentalDays,
+    );
+    if (fixedDropDateTime) {
+      this.dropDateTime = fixedDropDateTime;
+      this.toDate = fixedDropDateTime;
+    }
+  }
+
   this.pickupLocation = normalizeGeoLocation(this.pickupLocation);
   this.dropLocation = normalizeGeoLocation(this.dropLocation);
 
   const normalizedGracePeriodHours = Number(this.gracePeriodHours);
   if (!Number.isFinite(normalizedGracePeriodHours) || normalizedGracePeriodHours < 0) {
     this.gracePeriodHours = 1;
+  }
+
+  this.priceRangeType = normalizeRangeType(this.priceRangeType, 'LOW_RANGE');
+  const normalizedDepositAmount = Number(this.depositAmount || 0);
+  this.depositAmount =
+    Number.isFinite(normalizedDepositAmount) && normalizedDepositAmount >= 0
+      ? Number(normalizedDepositAmount.toFixed(2))
+      : 0;
+  const normalizedDepositPaid = Number(this.depositPaid || 0);
+  this.depositPaid =
+    Number.isFinite(normalizedDepositPaid) && normalizedDepositPaid >= 0
+      ? Number(normalizedDepositPaid.toFixed(2))
+      : 0;
+  const normalizedDepositRefunded = Number(this.depositRefunded || 0);
+  this.depositRefunded =
+    Number.isFinite(normalizedDepositRefunded) && normalizedDepositRefunded >= 0
+      ? Number(normalizedDepositRefunded.toFixed(2))
+      : 0;
+  const normalizedDepositDeducted = Number(this.depositDeducted || 0);
+  this.depositDeducted =
+    Number.isFinite(normalizedDepositDeducted) && normalizedDepositDeducted >= 0
+      ? Number(normalizedDepositDeducted.toFixed(2))
+      : 0;
+  const normalizedTotalRentalAmount = Number(this.totalRentalAmount || 0);
+  this.totalRentalAmount =
+    Number.isFinite(normalizedTotalRentalAmount) && normalizedTotalRentalAmount >= 0
+      ? Number(normalizedTotalRentalAmount.toFixed(2))
+      : 0;
+  const normalizedAmountPaid = Number(this.amountPaid || 0);
+  this.amountPaid =
+    Number.isFinite(normalizedAmountPaid) && normalizedAmountPaid >= 0
+      ? Number(normalizedAmountPaid.toFixed(2))
+      : 0;
+  const normalizedAmountRemaining = Number(this.amountRemaining || 0);
+  this.amountRemaining =
+    Number.isFinite(normalizedAmountRemaining) && normalizedAmountRemaining >= 0
+      ? Number(normalizedAmountRemaining.toFixed(2))
+      : 0;
+  if (!['NOT_APPLICABLE', 'HELD', 'REFUNDED', 'DEDUCTED', 'PARTIALLY_DEDUCTED'].includes(String(this.depositStatus || ''))) {
+    this.depositStatus = this.depositAmount > 0 ? 'HELD' : 'NOT_APPLICABLE';
   }
 
   if (!this.rentalStage) {
@@ -800,6 +930,19 @@ bookingSchema.pre('validate', function syncPaymentFields() {
     this.remainingAmount = Math.max(resolvedFinal - resolvedAdvancePaid, 0) + resolvedLateFee + resolvedDamageCost;
   }
 
+  if (this.totalRentalAmount <= 0) {
+    this.totalRentalAmount = Math.max(Number(this.finalAmount || this.totalAmount || 0), 0);
+  }
+
+  this.amountRemaining = Math.max(Number(this.remainingAmount || this.amountRemaining || 0), 0);
+  this.remainingAmount = this.amountRemaining;
+
+  if (this.amountPaid <= 0) {
+    const advancePaidAmount = Math.max(Number(this.advancePaid || 0), 0);
+    const fullPaidAmount = Math.max(Number(this.fullPaymentAmount || 0), 0);
+    this.amountPaid = Number((advancePaidAmount + fullPaidAmount).toFixed(2));
+  }
+
   if (!Number.isFinite(refundAmount) || refundAmount < 0) {
     this.refundAmount = 0;
   }
@@ -841,6 +984,30 @@ bookingSchema.pre('validate', function syncPaymentFields() {
   if (this.returnInspection) {
     this.returnInspection.conditionNotes = String(this.returnInspection.conditionNotes || '').trim();
     this.returnInspection.damageDetected = toBoolean(this.returnInspection.damageDetected, false);
+    const normalizedDamageStatus = String(this.returnInspection.damageStatus || '').trim().toUpperCase();
+    if (['NONE', 'MINOR', 'MAJOR'].includes(normalizedDamageStatus)) {
+      this.returnInspection.damageStatus = normalizedDamageStatus;
+    } else {
+      this.returnInspection.damageStatus = this.returnInspection.damageDetected ? 'MINOR' : 'NONE';
+    }
+    const normalizedDamageLevel = String(this.returnInspection.damageLevel || '').trim().toUpperCase();
+    if (normalizedDamageLevel === 'MINOR_DAMAGE' || normalizedDamageLevel === 'MAJOR_DAMAGE') {
+      this.returnInspection.damageLevel = normalizedDamageLevel;
+    } else {
+      this.returnInspection.damageLevel = this.returnInspection.damageStatus === 'MAJOR'
+        ? 'MAJOR_DAMAGE'
+        : this.returnInspection.damageDetected
+          ? 'MINOR_DAMAGE'
+          : 'NO_DAMAGE';
+    }
+
+    if (this.returnInspection.damageStatus === 'MAJOR') {
+      this.returnInspection.damageDetected = true;
+      this.returnInspection.damageLevel = 'MAJOR_DAMAGE';
+    } else if (this.returnInspection.damageStatus === 'MINOR') {
+      this.returnInspection.damageDetected = true;
+      this.returnInspection.damageLevel = 'MINOR_DAMAGE';
+    }
 
     const parsedDamageCost = Number(this.returnInspection.damageCost);
     this.returnInspection.damageCost =
@@ -862,6 +1029,10 @@ bookingSchema.pre('validate', function syncPaymentFields() {
       this.returnInspection.damageCost = 0;
       this.returnInspection.originalDamageCost = 0;
       this.returnInspection.damageDiscountPercentage = 0;
+      this.returnInspection.damageLevel = 'NO_DAMAGE';
+      this.returnInspection.damageStatus = 'NONE';
+    } else if (this.returnInspection.damageStatus === 'NONE') {
+      this.returnInspection.damageStatus = this.returnInspection.damageLevel === 'MAJOR_DAMAGE' ? 'MAJOR' : 'MINOR';
     }
 
     const parsedReturnMileage = Number(this.returnInspection.currentMileage);

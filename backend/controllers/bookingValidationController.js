@@ -9,11 +9,12 @@ const BOOKING_VALIDATION_ERROR_MESSAGE = 'Failed to validate booking dates';
 
 exports.validateBookingDateSelection = async (req, res) => {
   try {
-    const { pickupDate, dropDate } = resolveDateInput(req.body || {});
+    const { pickupDate, dropDate, rentalDays } = resolveDateInput(req.body || {});
     const result = await validateBookingDates({
       carId: req.params.id,
       pickupDate,
       dropDate,
+      rentalDays,
       minRentalDays: MIN_RENTAL_DAYS,
       maxRentalDays: MAX_RENTAL_DAYS,
     });

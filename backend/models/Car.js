@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { FLEET_STATUS_VALUES, normalizeFleetStatus, fleetStatusToAvailability } = require("../utils/fleetStatus");
+const { RANGE_TYPE_VALUES, normalizeRangeType, resolveRangeTypeForPrice } = require('../utils/depositRangeUtils');
 const tenantScopedPlugin = require('../plugins/tenantScopedPlugin');
 
 const carSchema = new mongoose.Schema(
@@ -64,6 +65,11 @@ const carSchema = new mongoose.Schema(
     pricePerDay: {
       type: Number,
       required: true
+    },
+    priceRangeType: {
+      type: String,
+      enum: RANGE_TYPE_VALUES,
+      default: 'LOW_RANGE',
     },
     dynamicPriceEnabled: {
       type: Boolean,
@@ -207,6 +213,10 @@ carSchema.pre("validate", function syncFleetAndMetadata() {
 
   const basePricePerDay = Number(this.pricePerDay);
   this.pricePerDay = Number.isFinite(basePricePerDay) && basePricePerDay > 0 ? basePricePerDay : 0;
+  this.priceRangeType = normalizeRangeType(
+    this.priceRangeType,
+    resolveRangeTypeForPrice(this.pricePerDay, 'LOW_RANGE'),
+  );
 
   this.manualOverridePrice = toNullablePositiveNumber(this.manualOverridePrice);
   const dynamicPriceValue = Number(this.currentDynamicPrice);

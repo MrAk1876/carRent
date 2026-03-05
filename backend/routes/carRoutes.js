@@ -6,6 +6,7 @@ const { FLEET_STATUS } = require("../utils/fleetStatus");
 const { syncCarFleetStatusFromMaintenance } = require("../services/maintenanceService");
 const { ensureMainBranch, ensureCarBranch } = require("../services/branchService");
 const { applySmartPricingToCars, resolveSmartPriceForCar } = require("../services/smartPricingService");
+const { resolveDepositForCar } = require('../services/depositRuleService');
 
 const toText = (value) => String(value || "").trim();
 const toLower = (value) => toText(value).toLowerCase();
@@ -215,6 +216,10 @@ router.get("/:id", async (req, res) => {
     });
 
     const plainCar = typeof activeCar?.toObject === "function" ? activeCar.toObject() : activeCar;
+    const depositInfo = await resolveDepositForCar({
+      car: activeCar,
+      perDayPrice: pricing.effectivePricePerDay,
+    });
     res.json({
       ...plainCar,
       basePricePerDay: pricing.basePricePerDay,
@@ -226,6 +231,9 @@ router.get("/:id", async (req, res) => {
       manualOverridePrice: pricing.manualOverridePrice,
       branchDynamicPricingEnabled: pricing.branchDynamicPricingEnabled,
       pricingRuleSummary: pricing.rulesApplied,
+      priceRangeType: depositInfo.rangeType,
+      depositAmount: depositInfo.depositAmount,
+      depositRuleActive: depositInfo.isRuleActive,
     });
   } catch (error) {
     res.status(404).json({ message: "Car not found" });

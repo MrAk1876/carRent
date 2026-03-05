@@ -4,11 +4,31 @@ const ONE_MINUTE_MS = 60 * 1000;
 const HOURS_PER_DAY = 24;
 const HALF_DAY_HOURS = 12;
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const FIXED_DROP_HOUR = 6;
+const FIXED_DROP_MINUTE = 0;
+const MIN_RENTAL_DAYS = 1;
+const MAX_RENTAL_DAYS = 30;
 
 const toDateOnly = (value) => {
   const date = new Date(value);
   date.setHours(0, 0, 0, 0);
   return date;
+};
+
+const normalizeRentalDaysValue = (value, options = {}) => {
+  const { min = MIN_RENTAL_DAYS, max = MAX_RENTAL_DAYS, allowNull = false } = options;
+  if ((value === undefined || value === null || value === '') && allowNull) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+
+  const normalized = Math.floor(parsed);
+  if (normalized < Math.max(Number(min || 0), 1)) return null;
+  if (normalized > Math.max(Number(max || 0), Math.max(Number(min || 0), 1))) return null;
+
+  return normalized;
 };
 
 const isDateOnlyInput = (value) => DATE_ONLY_REGEX.test(String(value || '').trim());
@@ -90,6 +110,58 @@ const validateRentalWindow = (pickupDateTime, dropDateTime, options = {}) => {
   return '';
 };
 
+const calculateRentalDaysByCalendar = (pickupDateTime, dropDateTime) => {
+  if (!pickupDateTime || !dropDateTime) return 0;
+
+  const pickup = new Date(pickupDateTime);
+  const drop = new Date(dropDateTime);
+  if (Number.isNaN(pickup.getTime()) || Number.isNaN(drop.getTime())) return 0;
+
+  const pickupDay = toDateOnly(pickup);
+  const dropDay = toDateOnly(drop);
+  const diffMs = dropDay.getTime() - pickupDay.getTime();
+  if (diffMs <= 0) return 0;
+
+  return Math.floor(diffMs / ONE_DAY_MS);
+};
+
+const resolveRentalDaysForFixedDrop = ({
+  rentalDays,
+  pickupDateTime,
+  dropDateTime,
+  min = MIN_RENTAL_DAYS,
+  max = MAX_RENTAL_DAYS,
+} = {}) => {
+  const normalizedFromInput = normalizeRentalDaysValue(rentalDays, {
+    min,
+    max,
+    allowNull: true,
+  });
+  if (normalizedFromInput) {
+    return normalizedFromInput;
+  }
+
+  const fallbackDays = calculateRentalDaysByCalendar(pickupDateTime, dropDateTime);
+  return normalizeRentalDaysValue(fallbackDays, { min, max, allowNull: true });
+};
+
+const calculateFixedDropDateTime = (pickupDateTime, rentalDays, options = {}) => {
+  const { dropHour = FIXED_DROP_HOUR, dropMinute = FIXED_DROP_MINUTE } = options;
+  const pickup = pickupDateTime instanceof Date
+    ? new Date(pickupDateTime.getTime())
+    : parseDateTimeInput(pickupDateTime);
+  if (!pickup || Number.isNaN(pickup.getTime())) return null;
+
+  const normalizedDays = normalizeRentalDaysValue(rentalDays, { allowNull: true });
+  if (!normalizedDays) return null;
+
+  const drop = toDateOnly(pickup);
+  drop.setDate(drop.getDate() + normalizedDays);
+  drop.setHours(dropHour, dropMinute, 0, 0);
+
+  return drop;
+};
+
 const getInclusiveBillingDays = (pickupDateTime, dropDateTime) => {
   if (!pickupDateTime || !dropDateTime) return 0;
   const start = toDateOnly(pickupDateTime);
@@ -146,8 +218,17 @@ const calculateTimeBasedRentalAmount = (pickupDateTime, dropDateTime, pricePerDa
 
 module.exports = {
   ONE_HOUR_MS,
+  ONE_DAY_MS,
+  FIXED_DROP_HOUR,
+  FIXED_DROP_MINUTE,
+  MIN_RENTAL_DAYS,
+  MAX_RENTAL_DAYS,
   parseDateTimeInput,
   normalizeStoredDateTime,
+  normalizeRentalDaysValue,
+  calculateRentalDaysByCalendar,
+  resolveRentalDaysForFixedDrop,
+  calculateFixedDropDateTime,
   validateRentalWindow,
   getInclusiveBillingDays,
   getRentalDurationHours,

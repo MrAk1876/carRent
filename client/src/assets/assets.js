@@ -194,6 +194,13 @@ export const ownerMenuLinks = [
     permission: PERMISSIONS.VIEW_FINANCIALS,
   },
   {
+    name: 'Deposit Rules',
+    path: '/owner/deposit-rules',
+    icon: listIcon,
+    coloredIcon: listIconColored,
+    permission: PERMISSIONS.MANAGE_FLEET,
+  },
+  {
     name: 'Manage Reviews',
     path: '/owner/reviews',
     icon: star_icon,
@@ -257,6 +264,13 @@ export const ownerMenuLinks = [
     coloredIcon: listIconColored,
     permission: PERMISSIONS.MANAGE_FLEET,
     roles: [ROLES.SUPER_ADMIN],
+  },
+  {
+    name: 'Settings',
+    path: '/owner/settings',
+    icon: listIcon,
+    coloredIcon: listIconColored,
+    permission: null,
   },
 ];
 

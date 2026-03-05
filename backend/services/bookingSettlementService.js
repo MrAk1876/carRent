@@ -6,14 +6,9 @@ const { ensureBookingInvoiceGenerated } = require('./invoiceService');
 const { queueCompletedInvoiceEmail } = require('./bookingEmailNotificationService');
 const { updateCarFleetStatus } = require('./fleetService');
 const { releaseDriverForBooking } = require('./driverAllocationService');
+const { resolveDepositSettlementSnapshot, toPositiveAmount } = require('../utils/depositSettlementUtils');
 
 const ALLOWED_PAYMENT_METHODS = new Set(['CARD', 'UPI', 'NETBANKING', 'CASH']);
-
-const toPositiveAmount = (value, fallback = 0) => {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue) || numericValue < 0) return fallback;
-  return numericValue;
-};
 
 const resolveDamageCost = (booking) => {
   const damageDetected = Boolean(booking?.returnInspection?.damageDetected);
@@ -92,7 +87,8 @@ const finalizeBookingSettlement = async (booking, options = {}) => {
   const advancePaid = resolveAdvancePaidAmount(booking);
   const lateFee = toPositiveAmount(booking.lateFee, 0);
   const damageCost = resolveDamageCost(booking);
-  const fallbackRemainingAmount = Math.max(finalAmount - advancePaid, 0) + lateFee + damageCost;
+  const depositSnapshot = resolveDepositSettlementSnapshot({ booking, damageCost });
+  const fallbackRemainingAmount = Math.max(finalAmount - advancePaid, 0) + lateFee + depositSnapshot.damageOutstanding;
   const existingRemainingAmount = toPositiveAmount(booking.remainingAmount, fallbackRemainingAmount);
   const collectedAmount = Number(Math.max(existingRemainingAmount, fallbackRemainingAmount).toFixed(2));
 
@@ -105,7 +101,14 @@ const finalizeBookingSettlement = async (booking, options = {}) => {
   booking.paymentStatus = 'Fully Paid';
   booking.bookingStatus = 'Completed';
   booking.remainingAmount = 0;
+  booking.amountRemaining = 0;
   booking.finalAmount = finalAmount;
+  booking.totalRentalAmount = Math.max(Number(booking.totalRentalAmount || finalAmount || booking.totalAmount || 0), 0);
+  booking.depositPaid = depositSnapshot.heldDeposit;
+  booking.depositDeducted = depositSnapshot.depositDeducted;
+  booking.depositRefunded = depositSnapshot.depositRefunded;
+  booking.depositStatus = depositSnapshot.depositStatus;
+  booking.amountPaid = Number((Math.max(Number(booking.advancePaid || 0), 0) + collectedAmount).toFixed(2));
 
   await booking.save();
 

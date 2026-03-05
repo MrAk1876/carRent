@@ -121,8 +121,9 @@ const createApp = (options = {}) => {
   app.use('/api', require('./routes/aiRoutes'));
   app.use('/api', require('./routes/pushRoutes'));
   app.use('/api/admin', require('./routes/adminRoutes'));
-app.use('/api/admin', require('./routes/autoMessageRoutes'));
+  app.use('/api/admin', require('./routes/autoMessageRoutes'));
   app.use('/api/admin', require('./routes/fleetAvailabilityRoutes'));
+  app.use('/api/admin', require('./routes/depositRoutes'));
   app.use('/api/user', userRoutes);
 
   return app;

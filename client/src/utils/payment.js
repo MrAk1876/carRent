@@ -149,6 +149,42 @@ export const resolveDamageCost = (item) => {
   return 0;
 };
 
+export const resolveDepositAmount = (item) => {
+  const value = Number(item?.depositAmount);
+  if (Number.isFinite(value) && value >= 0) return value;
+  return 0;
+};
+
+export const resolveDepositPaid = (item) => {
+  const value = Number(item?.depositPaid);
+  if (Number.isFinite(value) && value >= 0) return value;
+  return resolveDepositAmount(item);
+};
+
+export const resolveDepositDeducted = (item) => {
+  const value = Number(item?.depositDeducted);
+  if (Number.isFinite(value) && value >= 0) return value;
+  return 0;
+};
+
+export const resolveDepositRefunded = (item) => {
+  const value = Number(item?.depositRefunded);
+  if (Number.isFinite(value) && value >= 0) return value;
+  return 0;
+};
+
+export const resolveDamageOutstandingAmount = (item) => {
+  const damageCost = resolveDamageCost(item);
+  const depositPaid = resolveDepositPaid(item);
+  const depositDeducted = Math.min(resolveDepositDeducted(item), depositPaid, damageCost);
+
+  if (depositDeducted > 0 || resolveDepositRefunded(item) > 0 || String(item?.depositStatus || '').trim()) {
+    return Math.max(Number((damageCost - depositDeducted).toFixed(2)), 0);
+  }
+
+  return Math.max(Number((damageCost - Math.min(depositPaid, damageCost)).toFixed(2)), 0);
+};
+
 export const hasPickupInspection = (item) =>
   Boolean(item?.pickupInspection?.isLocked && item?.pickupInspection?.inspectedAt);
 
@@ -191,8 +227,8 @@ export const resolveRemainingAmount = (item) => {
   const advancePaid = resolveAdvancePaid(item);
   const fallbackAdvance = advancePaid > 0 ? advancePaid : resolveAdvanceRequired(item);
   const lateFee = resolveLateFee(item);
-  const damageCost = resolveDamageCost(item);
-  return Math.max(finalAmount - fallbackAdvance, 0) + lateFee + damageCost;
+  const damageOutstanding = resolveDamageOutstandingAmount(item);
+  return Math.max(finalAmount - fallbackAdvance, 0) + lateFee + damageOutstanding;
 };
 
 export const resolvePickupDateTime = (item) => item?.pickupDateTime || item?.fromDate || '';

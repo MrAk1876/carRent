@@ -42,6 +42,8 @@ const ManageDrivers = lazy(() => import('./features/admin/pages/ManageDrivers'))
 const AnalyticsDashboard = lazy(() => import('./features/admin/pages/AnalyticsDashboard'));
 const PlatformOverview = lazy(() => import('./features/admin/pages/PlatformOverview'));
 const ManageSubscriptions = lazy(() => import('./features/admin/pages/ManageSubscriptions'));
+const DepositRules = lazy(() => import('./features/admin/pages/DepositRules'));
+const Settings = lazy(() => import('./features/admin/pages/Settings'));
 
 const routeTransition = {
   initial: { opacity: 0, y: 14, scale: 0.995 },
@@ -61,6 +63,23 @@ const HEX_COLOR_PATTERN = /^#([0-9A-F]{3}|[0-9A-F]{6})$/i;
 const safeColor = (value, fallback) => {
   const candidate = String(value || '').trim();
   return HEX_COLOR_PATTERN.test(candidate) ? candidate : fallback;
+};
+
+const tenantBrandOverrideKey = (tenantId) => `car_rent_tenant_brand_override_${String(tenantId || 'default').trim()}`;
+
+const getTenantBrandingOverride = (tenantId) => {
+  try {
+    const raw = window.localStorage.getItem(tenantBrandOverrideKey(tenantId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      primaryColor: safeColor(parsed.primaryColor, ''),
+      secondaryColor: safeColor(parsed.secondaryColor, ''),
+    };
+  } catch {
+    return null;
+  }
 };
 
 const RouteLoader = () => (
@@ -101,8 +120,9 @@ const App = () => {
       .then((response) => {
         if (!active) return;
         const tenant = response?.data?.tenant || {};
-        const primaryColor = safeColor(tenant.primaryColor, '#2563eb');
-        const secondaryColor = safeColor(tenant.secondaryColor, '#1f58d8');
+        const override = getTenantBrandingOverride(tenant?._id);
+        const primaryColor = safeColor(override?.primaryColor || tenant.primaryColor, '#2563eb');
+        const secondaryColor = safeColor(override?.secondaryColor || tenant.secondaryColor, '#1f58d8');
         document.documentElement.style.setProperty('--color-primary', primaryColor);
         document.documentElement.style.setProperty('--color-primary-dull', secondaryColor);
       })
@@ -234,6 +254,10 @@ const App = () => {
                   path="manage-subscriptions"
                   element={canManageSubscriptions ? <ManageSubscriptions /> : <Navigate to="/owner/profile" replace />}
                 />
+                <Route
+                  path="deposit-rules"
+                  element={can(PERMISSIONS.MANAGE_FLEET) ? <DepositRules /> : <Navigate to="/owner/profile" replace />}
+                />
                 <Route path="subscription-plans" element={<SubscriptionPlans />} />
                 <Route
                   path="platform-overview"
@@ -263,6 +287,7 @@ const App = () => {
                   path="categories"
                   element={canManageCategories ? <ManageCategories /> : <Navigate to="/owner/profile" replace />}
                 />
+                <Route path="settings" element={<Settings />} />
                 <Route path="profile" element={<AdminProfile />} />
               </Route>
 
@@ -299,6 +324,10 @@ const App = () => {
                 element={staff ? <Navigate to="/owner/manage-subscriptions" replace /> : <Navigate to="/" replace />}
               />
               <Route
+                path="/admin/deposit-rules"
+                element={staff ? <Navigate to="/owner/deposit-rules" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
                 path="/admin/branches"
                 element={staff ? <Navigate to="/owner/branches" replace /> : <Navigate to="/" replace />}
               />
@@ -309,6 +338,10 @@ const App = () => {
               <Route
                 path="/admin/categories"
                 element={staff ? <Navigate to="/owner/categories" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="/admin/settings"
+                element={staff ? <Navigate to="/owner/settings" replace /> : <Navigate to="/" replace />}
               />
               <Route
                 path="/platform/overview"

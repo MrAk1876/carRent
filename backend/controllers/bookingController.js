@@ -18,6 +18,7 @@ const { syncRentalStagesForBookings } = require('../services/rentalStageService'
 const { runPendingPaymentTimeoutSweep } = require('../services/bookingPaymentTimeoutService');
 const { queuePendingPaymentEmailForBooking } = require('../services/bookingEmailNotificationService');
 const { releaseDriverForBooking } = require('../services/driverAllocationService');
+const { resolveDepositForCar } = require('../services/depositRuleService');
 
 const assertBookingInScope = async (user, booking, message) => {
   if (booking?.branchId) {
@@ -101,6 +102,10 @@ exports.createRequest = async (req, res) => {
     });
     const lockedPerDayPrice = Number(pricingSnapshot?.effectivePricePerDay || carForBooking?.pricePerDay || 0);
     const basePerDayPrice = Number(pricingSnapshot?.basePricePerDay || carForBooking?.pricePerDay || 0);
+    const depositInfo = await resolveDepositForCar({
+      car: carForBooking,
+      perDayPrice: lockedPerDayPrice,
+    });
     const totalAmount = days * lockedPerDayPrice;
     const pricingAmounts = buildPricingAmounts({
       basePerDayPrice,
@@ -108,6 +113,11 @@ exports.createRequest = async (req, res) => {
       billingDays: days,
     });
     const breakdown = calculateAdvanceBreakdown(totalAmount);
+    const resolvedDepositAmount = Number.isFinite(Number(depositInfo?.depositAmount))
+      ? Math.max(Number(depositInfo.depositAmount), 0)
+      : 0;
+    const effectiveAdvanceRequired = Math.max(Number(breakdown.advanceRequired || 0), resolvedDepositAmount);
+    const effectiveRemainingAmount = Math.max(Number(breakdown.finalAmount || 0) - effectiveAdvanceRequired, 0);
 
     // 5️⃣ Create booking
     let booking;
@@ -132,10 +142,19 @@ exports.createRequest = async (req, res) => {
         priceSource: pricingSnapshot?.priceSource || 'Base',
         priceAdjustmentPercent: Number(pricingSnapshot?.priceAdjustmentPercent || 0),
         finalAmount: breakdown.finalAmount,
-        advanceAmount: breakdown.advanceRequired,
-        advanceRequired: breakdown.advanceRequired,
+        priceRangeType: String(depositInfo?.rangeType || carForBooking?.priceRangeType || '').trim() || 'LOW_RANGE',
+        depositAmount: resolvedDepositAmount,
+        depositPaid: 0,
+        depositRefunded: 0,
+        depositDeducted: 0,
+        depositStatus: 'NOT_APPLICABLE',
+        totalRentalAmount: breakdown.finalAmount,
+        advanceAmount: effectiveAdvanceRequired,
+        advanceRequired: effectiveAdvanceRequired,
         advancePaid: 0,
-        remainingAmount: breakdown.remainingAmount,
+        remainingAmount: effectiveRemainingAmount,
+        amountPaid: 0,
+        amountRemaining: effectiveRemainingAmount,
 
         paymentStatus: 'Unpaid',
         bookingStatus: 'PendingPayment',
