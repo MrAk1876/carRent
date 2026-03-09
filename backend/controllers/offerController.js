@@ -21,7 +21,7 @@ const {
 } = require('../utils/rentalDateUtils');
 const { isStaffRole } = require('../utils/rbac');
 
-const MAX_OFFER_ATTEMPTS = 3;
+const MAX_OFFER_ATTEMPTS = 1;
 const TERMINAL_STATUSES = new Set(['accepted', 'rejected', 'expired']);
 
 const isTerminalStatus = (status) => TERMINAL_STATUSES.has(status);
@@ -51,7 +51,7 @@ const normalizeUserOfferHistory = (offer) => {
     }
   }
 
-  return cleaned.slice(0, MAX_OFFER_ATTEMPTS);
+  return cleaned.slice(0, Math.max(MAX_OFFER_ATTEMPTS, cleaned.length));
 };
 
 const createFinalApprovalRequestFromOffer = async (offer) => {
@@ -317,16 +317,15 @@ exports.createOffer = async (req, res) => {
       });
     }
 
-    const existingOpenOffer = await Offer.findOne({
+    const existingOffer = await Offer.findOne({
       car: carId,
       user: req.user._id,
       fromDate,
       toDate,
-      status: { $in: ['pending', 'countered'] },
     });
 
-    if (existingOpenOffer) {
-      return res.status(422).json({ message: 'An active offer already exists for this booking period' });
+    if (existingOffer) {
+      return res.status(422).json({ message: 'You can submit only one offer for this booking period' });
     }
 
     const offer = await Offer.create({
@@ -365,7 +364,7 @@ exports.getMyOffers = async (req, res) => {
 
 exports.respondToCounterOffer = async (req, res) => {
   try {
-    const { action, offeredPrice, message } = req.body;
+    const { action, message } = req.body;
     const offer = await Offer.findById(req.params.id);
 
     if (!offer) {
@@ -410,31 +409,9 @@ exports.respondToCounterOffer = async (req, res) => {
       return res.json({ message: 'Offer rejected', offer });
     }
 
-    if (offer.status !== 'countered') {
-      return res.status(422).json({ message: 'You can counter only a countered offer' });
-    }
-
-    const normalizedOfferedPrice = Number(offeredPrice);
-    if (!Number.isFinite(normalizedOfferedPrice) || normalizedOfferedPrice <= 0) {
-      return res.status(422).json({ message: 'offeredPrice must be a positive number for counter action' });
-    }
-
-    const history = normalizeUserOfferHistory(offer);
-    if (history.length >= MAX_OFFER_ATTEMPTS) {
-      return res.status(422).json({
-        message: 'Maximum of 3 user offers reached. You can only accept or reject this final counter price.',
-      });
-    }
-
-    offer.offeredPrice = normalizedOfferedPrice;
-    history.push(normalizedOfferedPrice);
-    offer.userOfferHistory = history;
-    offer.message = message || offer.message;
-    offer.status = 'pending';
-    offer.offerCount = history.length;
-    await offer.save();
-
-    return res.json({ message: 'Counter offer submitted', offer });
+    return res.status(422).json({
+      message: 'You can only accept or reject the admin counter offer',
+    });
   } catch (error) {
     console.error('respondToCounterOffer error:', error);
     const status = Number(error?.status || error?.statusCode) || 500;

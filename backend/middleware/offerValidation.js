@@ -44,19 +44,11 @@ exports.validateOfferIdParam = (req, res, next) => {
 };
 
 exports.validateUserRespondOffer = (req, res, next) => {
-  const { action, offeredPrice, message } = req.body;
+  const { action, message } = req.body;
   const normalizedAction = String(action || '').trim().toLowerCase();
 
-  if (!['accept', 'reject', 'counter'].includes(normalizedAction)) {
-    return res.status(400).json({ message: 'action must be accept, reject, or counter' });
-  }
-
-  if (normalizedAction === 'counter') {
-    const normalizedPrice = Number(offeredPrice);
-    if (!Number.isFinite(normalizedPrice) || normalizedPrice <= 0) {
-      return res.status(422).json({ message: 'offeredPrice must be a positive number for counter action' });
-    }
-    req.body.offeredPrice = normalizedPrice;
+  if (!['accept', 'reject'].includes(normalizedAction)) {
+    return res.status(400).json({ message: 'action must be accept or reject' });
   }
 
   if (message && String(message).length > 500) {

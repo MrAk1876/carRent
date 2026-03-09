@@ -48,11 +48,34 @@ const carSchema = new mongoose.Schema(
       trim: true,
       minlength: 2,
     },
+    stateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'State',
+      default: null,
+      index: true,
+    },
+    cityId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'City',
+      default: null,
+      index: true,
+    },
+    locationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Location',
+      default: null,
+      index: true,
+    },
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
       default: null,
       index: true,
+    },
+    pickupAddress: {
+      type: String,
+      trim: true,
+      default: '',
     },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,

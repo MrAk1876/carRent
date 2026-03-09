@@ -8,7 +8,7 @@ const { updateCarFleetStatus } = require('./fleetService');
 const { releaseDriverForBooking } = require('./driverAllocationService');
 const { resolveDepositSettlementSnapshot, toPositiveAmount } = require('../utils/depositSettlementUtils');
 
-const ALLOWED_PAYMENT_METHODS = new Set(['CARD', 'UPI', 'NETBANKING', 'CASH']);
+const ALLOWED_PAYMENT_METHODS = new Set(['CARD', 'UPI', 'NETBANKING', 'CASH', 'WALLET']);
 
 const resolveDamageCost = (booking) => {
   const damageDetected = Boolean(booking?.returnInspection?.damageDetected);
@@ -75,7 +75,7 @@ const finalizeBookingSettlement = async (booking, options = {}) => {
 
   const paymentMethod = normalizePaymentMethod(options.paymentMethod);
   if (!ALLOWED_PAYMENT_METHODS.has(paymentMethod)) {
-    const error = new Error('paymentMethod must be CARD, UPI, NETBANKING, or CASH');
+    const error = new Error('paymentMethod must be CARD, UPI, NETBANKING, CASH, or WALLET');
     error.status = 422;
     throw error;
   }

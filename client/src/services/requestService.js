@@ -5,6 +5,10 @@ export const createBookingRequest = async ({
   pickupDateTime,
   dropDateTime,
   rentalDays,
+  branchId,
+  stateId,
+  cityId,
+  locationId,
   fromDate,
   toDate,
   gracePeriodHours,
@@ -15,6 +19,10 @@ export const createBookingRequest = async ({
 
   const response = await API.post('/requests', {
     carId,
+    branchId,
+    stateId,
+    cityId,
+    locationId,
     pickupDateTime: normalizedPickupDateTime,
     dropDateTime: normalizedDropDateTime,
     rentalDays,

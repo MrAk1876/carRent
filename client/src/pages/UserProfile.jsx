@@ -7,6 +7,21 @@ import { assets } from '../assets/assets';
 import useNotify from '../hooks/useNotify';
 import { resolveImageUrl } from '../utils/image';
 import UniversalCalendarInput from '../components/UniversalCalendarInput';
+import LocationSelector from '../components/LocationSelector';
+import { getPublicCities, getPublicLocations, getPublicStates } from '../services/locationService';
+import {
+  buildLocationSelectionPayload,
+  findLocationOption,
+  loadPreferredLocationSelection,
+  saveLocationSelection,
+} from '../services/locationSelectionService';
+
+const normalizeStoredId = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (value?._id) return String(value._id);
+  return '';
+};
 
 const Profile = () => {
   const notify = useNotify();
@@ -24,6 +39,10 @@ const Profile = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [passwordMsg, setPasswordMsg] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
+  const [stateOptions, setStateOptions] = useState([]);
+  const [cityOptions, setCityOptions] = useState([]);
+  const [locationOptions, setLocationOptions] = useState([]);
+  const [locationLoading, setLocationLoading] = useState(false);
   const inputClass = (field) =>
     `border p-2.5 w-full rounded-lg focus:outline-none focus:ring-1 ${
       fieldErrors[field] ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-primary'
@@ -41,8 +60,108 @@ const Profile = () => {
   useEffect(() => {
     const data = localStorage.getItem('user');
     if (!data) return;
-    setUser(JSON.parse(data));
+    const parsedUser = JSON.parse(data);
+    const preferredLocation = loadPreferredLocationSelection();
+    setUser({
+      ...parsedUser,
+      stateId: normalizeStoredId(parsedUser?.stateId) || preferredLocation.stateId || '',
+      cityId: normalizeStoredId(parsedUser?.cityId) || preferredLocation.cityId || '',
+      locationId: normalizeStoredId(parsedUser?.locationId) || preferredLocation.locationId || '',
+      stateName: parsedUser?.stateName || parsedUser?.stateId?.name || preferredLocation.stateName || '',
+      cityName: parsedUser?.cityName || parsedUser?.cityId?.name || preferredLocation.cityName || '',
+      locationName:
+        parsedUser?.locationName || parsedUser?.locationId?.name || preferredLocation.locationName || '',
+    });
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadStates = async () => {
+      try {
+        setLocationLoading(true);
+        const states = await getPublicStates();
+        if (cancelled) return;
+        setStateOptions(states);
+      } catch {
+        if (!cancelled) setStateOptions([]);
+      } finally {
+        if (!cancelled) setLocationLoading(false);
+      }
+    };
+
+    loadStates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user?.stateId) {
+      setCityOptions([]);
+      setLocationOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadCities = async () => {
+      try {
+        setLocationLoading(true);
+        const cities = await getPublicCities(user.stateId);
+        if (cancelled) return;
+        setCityOptions(cities);
+        if (user.cityId && !cities.some((city) => String(city?._id || '') === String(user.cityId))) {
+          setUser((previous) => ({ ...previous, cityId: '', cityName: '', locationId: '', locationName: '' }));
+        }
+      } catch {
+        if (!cancelled) setCityOptions([]);
+      } finally {
+        if (!cancelled) setLocationLoading(false);
+      }
+    };
+
+    loadCities();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.stateId, user?.cityId]);
+
+  useEffect(() => {
+    if (!user?.cityId) {
+      setLocationOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadLocations = async () => {
+      try {
+        setLocationLoading(true);
+        const locations = await getPublicLocations(user.cityId);
+        if (cancelled) return;
+        setLocationOptions(locations);
+        if (
+          user.locationId &&
+          !locations.some((location) => String(location?._id || '') === String(user.locationId))
+        ) {
+          setUser((previous) => ({ ...previous, locationId: '', locationName: '' }));
+        }
+      } catch {
+        if (!cancelled) setLocationOptions([]);
+      } finally {
+        if (!cancelled) setLocationLoading(false);
+      }
+    };
+
+    loadLocations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.cityId, user?.locationId]);
 
   useEffect(() => {
     return () => {
@@ -110,6 +229,16 @@ const Profile = () => {
       }
     }
 
+    if (!user.stateId) {
+      errors.stateId = 'State is required';
+    }
+    if (!user.cityId) {
+      errors.cityId = 'City is required';
+    }
+    if (!user.locationId) {
+      errors.locationId = 'Pickup location is required';
+    }
+
     return errors;
   };
 
@@ -137,12 +266,22 @@ const Profile = () => {
         dob: user.dob,
         age,
         address: user.address,
+        stateId: user.stateId,
+        cityId: user.cityId,
+        locationId: user.locationId,
       };
 
       const res = await API.put('/user/profile', payload);
 
       localStorage.setItem('user', JSON.stringify(res.data.user));
       setUser(res.data.user);
+      saveLocationSelection(
+        buildLocationSelectionPayload({
+          stateOption: findLocationOption(stateOptions, { id: res.data.user?.stateId || user.stateId }),
+          cityOption: findLocationOption(cityOptions, { id: res.data.user?.cityId || user.cityId }),
+          locationOption: findLocationOption(locationOptions, { id: res.data.user?.locationId || user.locationId }),
+        }),
+      );
     } catch (error) {
       setErrorMsg(getErrorMessage(error, 'Profile update failed'));
     } finally {
@@ -329,6 +468,67 @@ const Profile = () => {
                     onChange={(e) => handleChange('address', e.target.value)}
                     placeholder="Address"
                   />
+                </div>
+
+                <div>
+                  <LocationSelector
+                    stateOptions={stateOptions}
+                    cityOptions={cityOptions}
+                    locationOptions={locationOptions}
+                    selectedStateId={user.stateId || ''}
+                    selectedCityId={user.cityId || ''}
+                    selectedLocationId={user.locationId || ''}
+                    onStateChange={(stateId) => {
+                      const stateOption = findLocationOption(stateOptions, { id: stateId });
+                      setFieldErrors((previous) => ({
+                        ...previous,
+                        stateId: undefined,
+                        cityId: undefined,
+                        locationId: undefined,
+                      }));
+                      setUser((previous) => ({
+                        ...previous,
+                        stateId,
+                        cityId: '',
+                        locationId: '',
+                        stateName: stateOption?.name || '',
+                        cityName: '',
+                        locationName: '',
+                      }));
+                    }}
+                    onCityChange={(cityId) => {
+                      const cityOption = findLocationOption(cityOptions, { id: cityId });
+                      setFieldErrors((previous) => ({ ...previous, cityId: undefined, locationId: undefined }));
+                      setUser((previous) => ({
+                        ...previous,
+                        cityId,
+                        locationId: '',
+                        cityName: cityOption?.name || '',
+                        locationName: '',
+                      }));
+                    }}
+                    onLocationChange={(locationId) => {
+                      const locationOption = findLocationOption(locationOptions, { id: locationId });
+                      setFieldErrors((previous) => ({ ...previous, locationId: undefined }));
+                      setUser((previous) => ({
+                        ...previous,
+                        locationId,
+                        locationName: locationOption?.name || '',
+                      }));
+                    }}
+                    loading={locationLoading}
+                    required
+                    wrapperClassName="grid grid-cols-1 gap-4"
+                    itemClassName=""
+                    labelClassName="text-sm text-gray-600"
+                    selectClassName="mt-1 border p-2.5 w-full rounded-lg focus:outline-none focus:ring-1 border-gray-300 focus:ring-primary"
+                    stateLabel="Default State"
+                    cityLabel="Default City"
+                    locationLabel="Default Pickup Location"
+                  />
+                  {fieldErrors.stateId && <p className="text-red-500 text-xs mt-1">{fieldErrors.stateId}</p>}
+                  {fieldErrors.cityId && <p className="text-red-500 text-xs mt-1">{fieldErrors.cityId}</p>}
+                  {fieldErrors.locationId && <p className="text-red-500 text-xs mt-1">{fieldErrors.locationId}</p>}
                 </div>
               </div>
 

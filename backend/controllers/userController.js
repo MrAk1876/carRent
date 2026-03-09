@@ -10,14 +10,20 @@ const { runPendingPaymentTimeoutSweep } = require('../services/bookingPaymentTim
 const { releaseCarIfUnblocked } = require('../services/fleetService');
 const { releaseDriverForBooking } = require('../services/driverAllocationService');
 const { isStaffRole } = require('../utils/rbac');
+const { resolveUserLocationSelection, buildUserLocationPayload } = require('../services/userLocationService');
 
 const MIN_PASSWORD_LENGTH = 8;
 
-const sanitizeUserPayload = (user) => {
+const sanitizeUserPayload = async (user, options = {}) => {
   if (!user) return user;
   const source = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+  delete source.password;
+  delete source.__v;
   source.image = normalizeStoredImageUrl(source.image);
-  return source;
+  return {
+    ...source,
+    ...(await buildUserLocationPayload(source, options)),
+  };
 };
 
 const uploadUserImageWithFallback = async (file) => {
@@ -215,7 +221,7 @@ exports.returnBookingAndPayRemaining = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
   try {
-    const { firstName, lastName, email, phone, address, dob } = req.body;
+    const { firstName, lastName, email, phone, address, dob, stateId, cityId, locationId } = req.body;
     const age = req.calculatedAge;
 
     const user = await User.findById(req.user._id);
@@ -228,6 +234,12 @@ exports.updateProfile = async (req, res) => {
         return res.status(400).json({ message: 'Email already registered' });
       }
     }
+    const { state, city, location } = await resolveUserLocationSelection({
+      stateId,
+      cityId,
+      locationId,
+      required: true,
+    });
 
     user.firstName = firstName || user.firstName;
     user.lastName = lastName || user.lastName;
@@ -236,12 +248,15 @@ exports.updateProfile = async (req, res) => {
     user.address = address;
     user.dob = dob;
     user.age = age;
+    user.stateId = state._id;
+    user.cityId = city._id;
+    user.locationId = location._id;
 
     await user.save();
 
     res.json({
       message: 'Profile updated',
-      user: sanitizeUserPayload(user),
+      user: await sanitizeUserPayload(user, { state, city, location }),
     });
   } catch (error) {
     console.error(error);
@@ -323,17 +338,26 @@ exports.completeProfile = async (req, res) => {
   let uploadedImage = null;
 
   try {
-    const { phone, address, dob } = req.body;
+    const { phone, address, dob, stateId, cityId, locationId } = req.body;
     const age = req.calculatedAge;
 
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found' });
+    const { state, city, location } = await resolveUserLocationSelection({
+      stateId,
+      cityId,
+      locationId,
+      required: true,
+    });
 
     user.phone = phone;
     user.address = address;
     user.dob = dob;
     user.age = age;
     user.isProfileComplete = true;
+    user.stateId = state._id;
+    user.cityId = city._id;
+    user.locationId = location._id;
 
     const previousImagePublicId = user.imagePublicId || '';
     const previousImageUrl = normalizeStoredImageUrl(user.image);
@@ -355,7 +379,7 @@ exports.completeProfile = async (req, res) => {
 
     res.json({
       message: 'Profile completed',
-      user: sanitizeUserPayload(user),
+      user: await sanitizeUserPayload(user, { state, city, location }),
     });
   } catch (error) {
     console.error(error);

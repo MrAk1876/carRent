@@ -35,6 +35,18 @@ const branchSchema = new mongoose.Schema(
       default: '',
       maxlength: 240,
     },
+    stateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'State',
+      default: null,
+      index: true,
+    },
+    cityId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'City',
+      default: null,
+      index: true,
+    },
     city: {
       type: String,
       trim: true,
@@ -56,6 +68,18 @@ const branchSchema = new mongoose.Schema(
       trim: true,
       default: '',
       maxlength: 30,
+    },
+    latitude: {
+      type: Number,
+      min: -90,
+      max: 90,
+      default: null,
+    },
+    longitude: {
+      type: Number,
+      min: -180,
+      max: 180,
+      default: null,
     },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -103,6 +127,10 @@ branchSchema.pre('validate', function normalizeBranchFields() {
   ].slice(0, 20);
   this.state = String(this.state || '').trim();
   this.contactNumber = String(this.contactNumber || '').trim();
+  const latitude = Number(this.latitude);
+  this.latitude = Number.isFinite(latitude) ? Number(latitude.toFixed(6)) : null;
+  const longitude = Number(this.longitude);
+  this.longitude = Number.isFinite(longitude) ? Number(longitude.toFixed(6)) : null;
   const multiplier = Number(this.dynamicPricingMultiplier);
   this.dynamicPricingMultiplier =
     Number.isFinite(multiplier) && multiplier > 0

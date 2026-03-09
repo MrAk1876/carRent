@@ -7,7 +7,7 @@ const ManageOffers = () => {
     <div className="admin-section-page px-4 pt-6 md:pt-10 md:px-10 pb-8 md:pb-10 w-full">
       <Title
         title="Manage Offers"
-        subTitle="Review negotiation offers, counter prices, accept, reject, and auto-expire after the limit."
+        subTitle="Review each user offer once, then accept, counter, or reject the negotiation."
       />
 
       <div className="mt-6 max-w-6xl rounded-2xl border border-borderColor bg-linear-to-r from-primary/5 via-white to-cyan-50 p-5 md:p-6">

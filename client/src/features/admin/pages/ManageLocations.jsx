@@ -10,8 +10,11 @@ const normalizeCompactText = (value) =>
 
 const toLowerKey = (value) => normalizeCompactText(value).toLowerCase();
 
-const toLocationKey = (branchId, locationName) =>
-  `${String(branchId || '').trim()}:${toLowerKey(locationName)}`;
+const toLocationKey = (branchId, location) => {
+  const locationId = String(location?._id || location?.locationId || '').trim();
+  const locationName = typeof location === 'string' ? location : location?.name;
+  return `${String(branchId || '').trim()}:${locationId || toLowerKey(locationName)}`;
+};
 
 const toBranchId = (value) => String(value || '').trim();
 
@@ -29,6 +32,7 @@ const ManageLocations = () => {
   const [carsModalState, setCarsModalState] = useState({
     open: false,
     branch: null,
+    locationId: '',
     locationName: '',
     cars: [],
     loading: false,
@@ -113,8 +117,9 @@ const ManageLocations = () => {
     }
   };
 
-  const handleRenameLocation = async (branchId, currentName) => {
-    const key = toLocationKey(branchId, currentName);
+  const handleRenameLocation = async (branchId, location) => {
+    const currentName = normalizeCompactText(location?.name || location);
+    const key = toLocationKey(branchId, location);
     const nextName = normalizeCompactText(renameDraftByLocation[key] || currentName);
     if (!nextName) {
       notify.error('Enter a valid location name');
@@ -129,7 +134,7 @@ const ManageLocations = () => {
       setActionKey(`rename:${key}`);
       const response = await API.put(
         '/admin/locations',
-        { branchId, currentName, nextName },
+        { branchId, locationId: location?._id || '', currentName, nextName },
         { showErrorToast: false },
       );
       await loadLocations();
@@ -146,14 +151,15 @@ const ManageLocations = () => {
     }
   };
 
-  const handleDeleteLocation = async (branchId, locationName) => {
+  const handleDeleteLocation = async (branchId, location) => {
+    const locationName = normalizeCompactText(location?.name || location);
     const confirmed = window.confirm(`Delete location "${locationName}"?`);
     if (!confirmed) return;
 
     try {
-      setActionKey(`delete:${toLocationKey(branchId, locationName)}`);
+      setActionKey(`delete:${toLocationKey(branchId, location)}`);
       const response = await API.delete('/admin/locations', {
-        params: { branchId, name: locationName },
+        params: { branchId, locationId: location?._id || '', name: locationName },
         showErrorToast: false,
       });
       await loadLocations();
@@ -165,12 +171,12 @@ const ManageLocations = () => {
     }
   };
 
-  const handleSetPrimaryLocation = async (branchId, locationName) => {
+  const handleSetPrimaryLocation = async (branchId, location) => {
     try {
-      setActionKey(`primary:${toLocationKey(branchId, locationName)}`);
+      setActionKey(`primary:${toLocationKey(branchId, location)}`);
       const response = await API.patch(
         '/admin/locations/primary',
-        { branchId, name: locationName },
+        { branchId, locationId: location?._id || '', name: location?.name || location },
         { showErrorToast: false },
       );
       await loadLocations();
@@ -187,6 +193,7 @@ const ManageLocations = () => {
     setCarsModalState({
       open: false,
       branch: null,
+      locationId: '',
       locationName: '',
       cars: [],
       loading: false,
@@ -196,14 +203,16 @@ const ManageLocations = () => {
     });
   };
 
-  const openCarsModal = async (branch, locationName) => {
+  const openCarsModal = async (branch, location) => {
     const branchId = String(branch?._id || '').trim();
-    const normalizedLocationName = normalizeCompactText(locationName);
-    if (!branchId || !normalizedLocationName) return;
+    const locationId = String(location?._id || '').trim();
+    const normalizedLocationName = normalizeCompactText(location?.name || location);
+    if (!branchId || (!locationId && !normalizedLocationName)) return;
 
     setCarsModalState({
       open: true,
       branch,
+      locationId,
       locationName: normalizedLocationName,
       cars: [],
       loading: true,
@@ -214,7 +223,7 @@ const ManageLocations = () => {
 
     try {
       const response = await API.get('/admin/locations/cars', {
-        params: { branchId, name: normalizedLocationName },
+        params: { branchId, locationId, name: normalizedLocationName },
         showErrorToast: false,
       });
       const cars = Array.isArray(response?.data?.cars) ? response.data.cars : [];
@@ -250,10 +259,12 @@ const ManageLocations = () => {
   const handleMoveCarToLocation = async (car) => {
     const carId = String(car?._id || '').trim();
     const sourceBranchId = getBranchIdFromCar(car, carsModalState.branch?._id);
-    const sourceLocation = normalizeCompactText(car?.location || carsModalState.locationName);
+    const sourceLocationId = String(car?.locationId?._id || car?.locationId || carsModalState.locationId || '').trim();
+    const sourceLocation = normalizeCompactText(car?.locationId?.name || car?.location || carsModalState.locationName);
     const selectedTarget = carsModalState.targetByCarId?.[carId] || {};
     const targetBranchId = toBranchId(selectedTarget?.branchId || sourceBranchId);
-    const targetLocation = normalizeCompactText(selectedTarget?.location);
+    const targetLocationId = String(selectedTarget?.locationId || '').trim();
+    const targetLocation = normalizeCompactText(selectedTarget?.locationName || selectedTarget?.location);
     if (!carId) return;
     if (!targetBranchId) {
       notify.error('Select target branch first');
@@ -279,6 +290,8 @@ const ManageLocations = () => {
           carId,
           fromBranchId: sourceBranchId,
           toBranchId: targetBranchId,
+          fromLocationId: sourceLocationId,
+          toLocationId: targetLocationId,
           fromLocation: sourceLocation,
           toLocation: targetLocation,
         },
@@ -396,7 +409,7 @@ const ManageLocations = () => {
                       </tr>
                     ) : (
                       (branch.locations || []).map((location) => {
-                        const key = toLocationKey(branch._id, location.name);
+                        const key = toLocationKey(branch._id, location);
                         const draftValue = renameDraftByLocation[key] ?? location.name;
                         const deleteDisabled = Number(location?.carCount || 0) > 0;
                         return (
@@ -421,7 +434,7 @@ const ManageLocations = () => {
                               <input
                                 type="text"
                                 value={draftValue}
-                                onChange={(event) => updateRenameDraft(branch._id, location.name, event.target.value)}
+                                onChange={(event) => updateRenameDraft(branch._id, location, event.target.value)}
                                 className="w-full rounded-lg border border-borderColor px-2.5 py-1.5 text-xs"
                               />
                             </td>
@@ -429,7 +442,7 @@ const ManageLocations = () => {
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => handleSetPrimaryLocation(branch._id, location.name)}
+                                  onClick={() => handleSetPrimaryLocation(branch._id, location)}
                                   disabled={location.isPrimary || actionKey === `primary:${key}`}
                                   className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
                                     location.isPrimary || actionKey === `primary:${key}`
@@ -442,7 +455,7 @@ const ManageLocations = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleRenameLocation(branch._id, location.name)}
+                                  onClick={() => handleRenameLocation(branch._id, location)}
                                   disabled={actionKey === `rename:${key}`}
                                   className={`rounded-md px-3 py-1.5 text-xs font-semibold text-white ${
                                     actionKey === `rename:${key}`
@@ -454,7 +467,7 @@ const ManageLocations = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => openCarsModal(branch, location.name)}
+                                  onClick={() => openCarsModal(branch, location)}
                                   className="rounded-md px-3 py-1.5 text-xs font-semibold bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
                                   title="View cars in this location"
                                 >
@@ -462,7 +475,7 @@ const ManageLocations = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleDeleteLocation(branch._id, location.name)}
+                                  onClick={() => handleDeleteLocation(branch._id, location)}
                                   disabled={deleteDisabled || actionKey === `delete:${key}`}
                                   className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
                                     deleteDisabled || actionKey === `delete:${key}`
@@ -560,14 +573,25 @@ const ManageLocations = () => {
                           const selectedBranch = branches.find(
                             (entry) => toBranchId(entry?._id) === toBranchId(selectedBranchId),
                           );
-                          const selectedTargetLocation = normalizeCompactText(selectedTarget?.location);
-                          const locationOptions = Array.from(
-                            new Set(
-                              (Array.isArray(selectedBranch?.locations) ? selectedBranch.locations : [])
-                                .map((entry) => normalizeCompactText(entry?.name))
-                                .filter(Boolean),
-                            ),
+                          const selectedTargetLocationId = String(selectedTarget?.locationId || '').trim();
+                          const selectedTargetLocation = normalizeCompactText(
+                            selectedTarget?.locationName || selectedTarget?.location,
                           );
+                          const locationOptions = (Array.isArray(selectedBranch?.locations) ? selectedBranch.locations : [])
+                            .map((entry) => ({
+                              _id: String(entry?._id || '').trim(),
+                              name: normalizeCompactText(entry?.name),
+                            }))
+                            .filter((entry, index, entries) => {
+                              if (!entry.name) return false;
+                              return (
+                                entries.findIndex(
+                                  (candidate) =>
+                                    String(candidate?._id || candidate?.name || '') ===
+                                    String(entry?._id || entry?.name || ''),
+                                ) === index
+                              );
+                            });
                           const moving = carsModalState.movingCarId === carId;
                           return (
                             <tr key={carId} className="border-t border-borderColor align-middle">
@@ -582,14 +606,15 @@ const ManageLocations = () => {
                               <td className="px-3 py-2 text-gray-700">
                                 {car?.branchId?.branchName || currentBranch?.branchName || 'N/A'}
                               </td>
-                              <td className="px-3 py-2 text-gray-700">{car?.location || 'N/A'}</td>
+                              <td className="px-3 py-2 text-gray-700">{car?.locationId?.name || car?.location || 'N/A'}</td>
                               <td className="px-3 py-2">
                                 <select
                                   value={selectedBranchId}
                                   onChange={(event) =>
                                     updateCarMoveTarget(carId, {
                                       branchId: toBranchId(event.target.value),
-                                      location: '',
+                                      locationId: '',
+                                      locationName: '',
                                     })
                                   }
                                   className="w-full rounded-lg border border-borderColor px-2.5 py-1.5 text-xs"
@@ -605,13 +630,17 @@ const ManageLocations = () => {
                               </td>
                               <td className="px-3 py-2">
                                 <select
-                                  value={selectedTargetLocation}
-                                  onChange={(event) =>
+                                  value={selectedTargetLocationId || selectedTargetLocation}
+                                  onChange={(event) => {
+                                    const nextLocation = locationOptions.find(
+                                      (entry) => String(entry?._id || entry?.name || '') === event.target.value,
+                                    );
                                     updateCarMoveTarget(carId, {
                                       branchId: selectedBranchId,
-                                      location: event.target.value,
-                                    })
-                                  }
+                                      locationId: String(nextLocation?._id || '').trim(),
+                                      locationName: nextLocation?.name || '',
+                                    });
+                                  }}
                                   className="w-full rounded-lg border border-borderColor px-2.5 py-1.5 text-xs"
                                   disabled={moving || !selectedBranchId || locationOptions.length === 0}
                                 >
@@ -622,9 +651,12 @@ const ManageLocations = () => {
                                         ? 'Select location'
                                         : 'No location available'}
                                   </option>
-                                  {locationOptions.map((optionName) => (
-                                    <option key={`${carId}:${optionName}`} value={optionName}>
-                                      {optionName}
+                                  {locationOptions.map((option) => (
+                                    <option
+                                      key={`${carId}:${option._id || option.name}`}
+                                      value={String(option._id || option.name)}
+                                    >
+                                      {option.name}
                                     </option>
                                   ))}
                                 </select>

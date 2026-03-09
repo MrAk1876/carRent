@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { assets } from '../assets/assets';
+import { getCarPickupSummary } from '../services/carService';
 import { isAdmin } from '../utils/auth';
 
 const resolveFleetStatus = (car) => {
@@ -8,6 +9,8 @@ const resolveFleetStatus = (car) => {
   if (normalized) return normalized;
   return car?.isAvailable ? 'Available' : 'Inactive';
 };
+const getBranchCity = (branch, fallback = '') => String(branch?.cityId?.name || branch?.city || fallback || '').trim();
+const getBranchState = (branch, fallback = '') => String(branch?.stateId?.name || branch?.state || fallback || '').trim();
 
 const getFleetBadgeClass = (fleetStatus) => {
   if (fleetStatus === 'Available') return 'bg-primary text-white';
@@ -23,6 +26,13 @@ const CarCard = ({ car }) => {
   const admin = isAdmin();
   const fleetStatus = resolveFleetStatus(car);
   const canOpenDetails = admin || fleetStatus === 'Available';
+  const branch = car?.branchId && typeof car.branchId === 'object' ? car.branchId : null;
+  const pickup = getCarPickupSummary(car);
+  const branchCity = pickup.pickupCityName || getBranchCity(branch, car?.city || car?.location);
+  const branchState = pickup.pickupStateName || getBranchState(branch, car?.state);
+  const pickupBranchName = pickup.pickupBranchName;
+  const pickupLocationName = pickup.pickupLocationName || branchCity;
+  const pickupAddress = pickup.pickupAddress;
 
   const openDetails = () => {
     if (!canOpenDetails) return;
@@ -57,6 +67,11 @@ const CarCard = ({ car }) => {
           ) : (
             <p className="text-[11px] px-2 py-1 rounded-full font-medium bg-slate-500 text-white">Not Bookable</p>
           )}
+          {car?.isFallbackLocation && car?.locationWarningBadge ? (
+            <p className="text-[11px] px-2 py-1 rounded-full font-medium bg-amber-500 text-white">
+              {car.locationWarningBadge}
+            </p>
+          ) : null}
         </div>
 
         <div className="absolute right-3 bottom-3 bg-black/80 text-white px-3 py-1.5 rounded-lg">
@@ -96,8 +111,19 @@ const CarCard = ({ car }) => {
           </div>
           <div className="flex items-center text-sm">
             <img src={assets.location_icon} alt="location" className="h-4 mr-2" />
-            <span>{car.location}</span>
+            <span>{pickupLocationName || branchCity || car.location}</span>
           </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-borderColor bg-light/50 px-3.5 py-3">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Pickup Location</p>
+          <p className="mt-1 text-sm font-semibold text-slate-800">{pickupLocationName}</p>
+          <p className="mt-1 text-xs text-slate-500">{branchCity}{branchState ? `, ${branchState}` : ''}</p>
+          <p className="mt-1 text-xs text-slate-500">Branch: {pickupBranchName}</p>
+          <p className="mt-1 text-xs text-slate-500">{pickupAddress || 'Branch address will be shared at confirmation.'}</p>
+          {car?.isFallbackLocation && car?.locationWarningText ? (
+            <p className="mt-2 text-xs font-medium text-amber-700">{car.locationWarningText}</p>
+          ) : null}
         </div>
       </div>
     </div>

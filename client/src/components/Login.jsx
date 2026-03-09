@@ -2,6 +2,15 @@ import React from 'react';
 import API, { getErrorMessage } from '../api';
 import { assets } from '../assets/assets';
 import useNotify from '../hooks/useNotify';
+import LocationSelector from './LocationSelector';
+import { getPublicCities, getPublicLocations, getPublicStates } from '../services/locationService';
+import {
+  buildLocationSelectionPayload,
+  findLocationOption,
+  hasCompleteLocationSelection,
+  loadSavedLocationSelection,
+  saveLocationSelection,
+} from '../services/locationSelectionService';
 
 const Login = ({ setShowLogin }) => {
   const notify = useNotify();
@@ -13,8 +22,139 @@ const Login = ({ setShowLogin }) => {
   const [showPassword, setShowPassword] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState('');
+  const [stateOptions, setStateOptions] = React.useState([]);
+  const [cityOptions, setCityOptions] = React.useState([]);
+  const [locationOptions, setLocationOptions] = React.useState([]);
+  const [locationLoading, setLocationLoading] = React.useState(false);
+  const [registerStateId, setRegisterStateId] = React.useState('');
+  const [registerCityId, setRegisterCityId] = React.useState('');
+  const [registerLocationId, setRegisterLocationId] = React.useState('');
 
   const isRegister = state === 'register';
+
+  React.useEffect(() => {
+    if (!isRegister || stateOptions.length > 0) return;
+
+    let cancelled = false;
+    const savedSelection = loadSavedLocationSelection();
+
+    const loadStates = async () => {
+      try {
+        setLocationLoading(true);
+        const states = await getPublicStates();
+        if (cancelled) return;
+        setStateOptions(states);
+
+        const preferredState = findLocationOption(states, {
+          id: savedSelection.stateId,
+          name: savedSelection.stateName,
+        });
+        if (preferredState?._id) {
+          setRegisterStateId(String(preferredState._id));
+        }
+      } catch {
+        if (!cancelled) {
+          setStateOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLocationLoading(false);
+        }
+      }
+    };
+
+    loadStates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isRegister, stateOptions.length]);
+
+  React.useEffect(() => {
+    if (!isRegister || !registerStateId) {
+      setCityOptions([]);
+      setRegisterCityId('');
+      setLocationOptions([]);
+      setRegisterLocationId('');
+      return;
+    }
+
+    let cancelled = false;
+    const savedSelection = loadSavedLocationSelection();
+
+    const loadCities = async () => {
+      try {
+        setLocationLoading(true);
+        const cities = await getPublicCities(registerStateId);
+        if (cancelled) return;
+        setCityOptions(cities);
+
+        const preferredCity = findLocationOption(cities, {
+          id: savedSelection.cityId,
+          name: savedSelection.cityName,
+        });
+        if (preferredCity?._id && String(preferredCity.stateId || '') === String(registerStateId)) {
+          setRegisterCityId(String(preferredCity._id));
+        }
+      } catch {
+        if (!cancelled) {
+          setCityOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLocationLoading(false);
+        }
+      }
+    };
+
+    loadCities();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isRegister, registerStateId]);
+
+  React.useEffect(() => {
+    if (!isRegister || !registerCityId) {
+      setLocationOptions([]);
+      setRegisterLocationId('');
+      return;
+    }
+
+    let cancelled = false;
+    const savedSelection = loadSavedLocationSelection();
+
+    const loadLocations = async () => {
+      try {
+        setLocationLoading(true);
+        const locations = await getPublicLocations(registerCityId);
+        if (cancelled) return;
+        setLocationOptions(locations);
+
+        const preferredLocation = findLocationOption(locations, {
+          id: savedSelection.locationId,
+          name: savedSelection.locationName,
+        });
+        if (preferredLocation?._id && String(preferredLocation.cityId || '') === String(registerCityId)) {
+          setRegisterLocationId(String(preferredLocation._id));
+        }
+      } catch {
+        if (!cancelled) {
+          setLocationOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLocationLoading(false);
+        }
+      }
+    };
+
+    loadLocations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isRegister, registerCityId]);
 
   const onSubmitHandler = async (e) => {
     e.preventDefault();
@@ -31,6 +171,21 @@ const Login = ({ setShowLogin }) => {
 
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
+        if (
+          !hasCompleteLocationSelection(loadSavedLocationSelection()) &&
+          res.data.user?.stateId &&
+          res.data.user?.cityId &&
+          res.data.user?.locationId
+        ) {
+          saveLocationSelection({
+            stateId: res.data.user.stateId,
+            cityId: res.data.user.cityId,
+            locationId: res.data.user.locationId,
+            stateName: res.data.user.stateName,
+            cityName: res.data.user.cityName,
+            locationName: res.data.user.locationName,
+          });
+        }
         notify.success('Logged in successfully');
 
         setShowLogin(false);
@@ -39,15 +194,34 @@ const Login = ({ setShowLogin }) => {
           window.location.href = '/complete-profile';
         }
       } else {
+        if (!registerStateId || !registerCityId || !registerLocationId) {
+          setErrorMsg('Select your default state, city, and pickup location to register.');
+          setLoading(false);
+          return;
+        }
+
         const res = await API.post('/auth/register', {
           firstName,
           lastName,
           email,
           password,
+          stateId: registerStateId,
+          cityId: registerCityId,
+          locationId: registerLocationId,
         });
 
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
+        saveLocationSelection(
+          buildLocationSelectionPayload({
+            stateOption: findLocationOption(stateOptions, { id: res.data.user?.stateId || registerStateId }),
+            cityOption: findLocationOption(cityOptions, { id: res.data.user?.cityId || registerCityId }),
+            locationOption: findLocationOption(
+              locationOptions,
+              { id: res.data.user?.locationId || registerLocationId },
+            ),
+          }),
+        );
         notify.success('Registration successful');
 
         if (res.data.user.isProfileComplete === false) {
@@ -134,26 +308,59 @@ const Login = ({ setShowLogin }) => {
 
           <div className="mt-6 space-y-4">
             {isRegister ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">First Name</label>
-                  <input
-                    onChange={(e) => setFirstName(e.target.value)}
-                    value={firstName}
-                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700"
-                    required
-                  />
+              <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-medium uppercase tracking-wide text-slate-500">First Name</label>
+                    <input
+                      onChange={(e) => setFirstName(e.target.value)}
+                      value={firstName}
+                      className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Last Name</label>
+                    <input
+                      onChange={(e) => setLastName(e.target.value)}
+                      value={lastName}
+                      className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700"
+                      required
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Last Name</label>
-                  <input
-                    onChange={(e) => setLastName(e.target.value)}
-                    value={lastName}
-                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700"
-                    required
-                  />
-                </div>
-              </div>
+
+                <LocationSelector
+                  stateOptions={stateOptions}
+                  cityOptions={cityOptions}
+                  locationOptions={locationOptions}
+                  selectedStateId={registerStateId}
+                  selectedCityId={registerCityId}
+                  selectedLocationId={registerLocationId}
+                  onStateChange={(stateId) => {
+                    setRegisterStateId(stateId);
+                    setRegisterCityId('');
+                    setRegisterLocationId('');
+                  }}
+                  onCityChange={(cityId) => {
+                    setRegisterCityId(cityId);
+                    setRegisterLocationId('');
+                  }}
+                  onLocationChange={setRegisterLocationId}
+                  loading={locationLoading}
+                  required
+                  wrapperClassName="grid grid-cols-1 gap-4"
+                  itemClassName=""
+                  labelClassName="text-xs font-medium uppercase tracking-wide text-slate-500"
+                  selectClassName="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700"
+                  stateLabel="Default State"
+                  cityLabel="Default City"
+                  locationLabel="Default Pickup Location"
+                  statePlaceholder="Select state"
+                  cityPlaceholder="Select city"
+                  locationPlaceholder="Select pickup location"
+                />
+              </>
             ) : null}
 
             <div>

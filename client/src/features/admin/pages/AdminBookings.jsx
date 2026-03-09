@@ -33,6 +33,7 @@ import {
   resolveRemainingAmount,
   resolveTotalPaidAmount,
 } from '../../../utils/payment';
+import { LOCATION_ALERT_TYPES, buildLocationLabel, resolveBookingLocationAlert } from '../../../utils/locationAlerts';
 
 const RENTAL_STAGE_FILTERS = ['all', 'Scheduled', 'Active', 'Overdue', 'Completed', 'Cancelled', 'Refunded'];
 
@@ -588,6 +589,15 @@ const AdminBookings = () => {
               const userName = `${booking.user?.firstName || ''} ${booking.user?.lastName || ''}`.trim();
               const timeoutCancelled = isPaymentTimeoutCancelled(booking);
               const bookingId = String(booking?._id || '');
+              const bookingLocationAlert = resolveBookingLocationAlert(booking);
+              const userLocationLabel = buildLocationLabel(
+                booking?.customerCityName || booking?.user?.cityId?.name || '',
+                booking?.customerStateName || booking?.user?.stateId?.name || '',
+              );
+              const pickupLocationLabel = buildLocationLabel(
+                booking?.branchId?.city || '',
+                booking?.branchId?.state || '',
+              );
               const assignedDriver = booking?.assignedDriver || null;
               const assignedDriverName = String(assignedDriver?.driverName || '').trim();
               const assignedDriverPhone = String(assignedDriver?.phoneNumber || '').trim();
@@ -627,6 +637,12 @@ const AdminBookings = () => {
                         </h3>
                         <p className="text-sm text-gray-600">
                           User: {userName || 'Unknown'} ({booking.user?.email || 'N/A'})
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          User location: {userLocationLabel || 'Not set'}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Pickup branch location: {pickupLocationLabel || 'Not set'}
                         </p>
                         <p className="text-sm text-gray-500 mt-1">
                           Pickup: {formatDateTimeLabel(pickupDateTime)}
@@ -692,6 +708,22 @@ const AdminBookings = () => {
                           <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
                             Payment timeout: booking auto-cancelled due to unpaid advance.
                           </p>
+                        ) : null}
+                        {bookingLocationAlert.type !== LOCATION_ALERT_TYPES.NONE ? (
+                          <div
+                            className={`mt-2 rounded-lg border px-2.5 py-2 text-[11px] ${
+                              bookingLocationAlert.type === LOCATION_ALERT_TYPES.OTHER_STATE
+                                ? 'border-red-200 bg-red-50 text-red-700'
+                                : 'border-amber-200 bg-amber-50 text-amber-700'
+                            }`}
+                          >
+                            <p className="font-semibold">
+                              {bookingLocationAlert.type === LOCATION_ALERT_TYPES.OTHER_STATE
+                                ? 'Other state booking'
+                                : 'Other location booking'}
+                            </p>
+                            <p className="mt-1">{bookingLocationAlert.message}</p>
+                          </div>
                         ) : null}
                         {['Scheduled', 'Active', 'Overdue'].includes(rentalStage) ? (
                           <div className="mt-2 rounded-lg border border-borderColor bg-light px-2.5 py-2 text-xs">

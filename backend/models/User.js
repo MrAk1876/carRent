@@ -119,6 +119,27 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    stateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'State',
+      default: null,
+      index: true,
+    },
+
+    cityId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'City',
+      default: null,
+      index: true,
+    },
+
+    locationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Location',
+      default: null,
+      index: true,
+    },
+
     image: {
       type: String,
       default: '',

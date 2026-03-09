@@ -69,6 +69,45 @@ const normalizeStringList = (values = []) =>
 const normalizeBranchCities = (branch) =>
   normalizeStringList([branch?.city, ...(Array.isArray(branch?.serviceCities) ? branch.serviceCities : [])]);
 
+const normalizeBranchLocations = (branch, extraLocations = []) => {
+  const merged = new Map();
+  const attachLocation = (location) => {
+    const locationId = String(location?._id || '').trim();
+    const locationName = finalizeCompactText(location?.name || location);
+    if (!locationName) return;
+    const key = locationId || locationName.toLowerCase();
+    merged.set(key, {
+      _id: locationId,
+      name: locationName,
+      branchAddress: finalizeCompactText(location?.branchAddress || branch?.address || ''),
+      isPrimary: Boolean(location?.isPrimary),
+    });
+  };
+
+  (Array.isArray(branch?.locations) ? branch.locations : []).forEach(attachLocation);
+  extraLocations.forEach(attachLocation);
+
+  return [...merged.values()].sort(
+    (left, right) => Number(right.isPrimary) - Number(left.isPrimary) || left.name.localeCompare(right.name),
+  );
+};
+
+const findBranchLocationOption = (branch, { locationId = '', locationName = '' } = {}) => {
+  const normalizedLocationId = String(locationId || '').trim();
+  const normalizedLocationName = finalizeCompactText(locationName).toLowerCase();
+  const locationOptions = normalizeBranchLocations(branch);
+
+  return (
+    locationOptions.find((location) => {
+      const optionId = String(location?._id || '').trim();
+      const optionName = finalizeCompactText(location?.name).toLowerCase();
+      if (normalizedLocationId && optionId === normalizedLocationId) return true;
+      if (normalizedLocationName && optionName === normalizedLocationName) return true;
+      return false;
+    }) || null
+  );
+};
+
 const createEmptyCarForm = () => ({
   name: '',
   brand: '',
@@ -80,6 +119,7 @@ const createEmptyCarForm = () => ({
   fuel_type: '',
   seating_capacity: '',
   branchId: '',
+  locationId: '',
   location: '',
   registrationNumber: '',
   chassisNumber: '',
@@ -103,6 +143,7 @@ const CAR_FORM_FIELDS = [
   'fuel_type',
   'seating_capacity',
   'branchId',
+  'locationId',
   'location',
   'registrationNumber',
   'chassisNumber',
@@ -146,6 +187,12 @@ const mapCarToForm = (car) => {
         : String(car?.branchId || '');
       return;
     }
+    if (field === 'locationId') {
+      mapped.locationId = typeof car?.locationId === 'object' && car?.locationId?._id
+        ? String(car.locationId._id)
+        : String(car?.locationId || '');
+      return;
+    }
     mapped[field] = car[field] ?? '';
   });
 
@@ -155,7 +202,7 @@ const mapCarToForm = (car) => {
   mapped.name = finalizeCompactText(mapped.name);
   mapped.brand = finalizeCompactText(mapped.brand);
   mapped.model = finalizeCompactText(mapped.model);
-  mapped.location = finalizeCompactText(mapped.location);
+  mapped.location = finalizeCompactText(mapped.location || car?.locationId?.name || '');
   mapped.year = mapped.year ? String(mapped.year) : '';
   mapped.registrationNumber = normalizeRegistrationNumber(mapped.registrationNumber);
   mapped.chassisNumber = normalizeUpperCodeText(mapped.chassisNumber).trim();
@@ -256,12 +303,13 @@ const AddCar = () => {
     [branchOptions, car.branchId],
   );
   const locationOptions = useMemo(() => {
-    const branchCities = selectedBranch ? normalizeBranchCities(selectedBranch) : [];
-    if (car.location) {
-      return normalizeStringList([...branchCities, car.location]);
-    }
-    return branchCities;
-  }, [selectedBranch, car.location]);
+    const extraLocations = car.location ? [{ _id: car.locationId, name: car.location }] : [];
+    return normalizeBranchLocations(selectedBranch, extraLocations);
+  }, [selectedBranch, car.location, car.locationId]);
+  const selectedLocationOption = useMemo(
+    () => findBranchLocationOption(selectedBranch, { locationId: car.locationId, locationName: car.location }),
+    [selectedBranch, car.locationId, car.location],
+  );
   const categoryOptionsForSelect = useMemo(
     () => normalizeStringList([...categoryOptions, car.category]),
     [categoryOptions, car.category],
@@ -405,11 +453,15 @@ const AddCar = () => {
         { showErrorToast: false },
       );
       const nextBranch = response?.data?.branch;
-      const nextLocation = finalizeCompactText(response?.data?.location || locationName);
+      const nextLocation = response?.data?.location || null;
       if (nextBranch?._id) {
         syncBranchOption(nextBranch);
       }
-      setCar((previous) => ({ ...previous, location: nextLocation }));
+      setCar((previous) => ({
+        ...previous,
+        locationId: String(nextLocation?._id || '').trim(),
+        location: finalizeCompactText(nextLocation?.name || locationName),
+      }));
       notify.success(response?.data?.message || 'Location saved');
       return true;
     } catch (error) {
@@ -423,12 +475,19 @@ const AddCar = () => {
   const handleLocationSelection = async (nextLocationValue) => {
     const selectedValue = String(nextLocationValue || '');
     if (!selectedValue) {
-      setCar((previous) => ({ ...previous, location: '' }));
+      setCar((previous) => ({ ...previous, locationId: '', location: '' }));
       return;
     }
 
     if (selectedValue !== ADD_LOCATION_OPTION_VALUE) {
-      setCar((previous) => ({ ...previous, location: selectedValue }));
+      const nextLocation = locationOptions.find(
+        (location) => String(location?._id || location?.name || '') === selectedValue,
+      );
+      setCar((previous) => ({
+        ...previous,
+        locationId: String(nextLocation?._id || '').trim(),
+        location: finalizeCompactText(nextLocation?.name || selectedValue),
+      }));
       return;
     }
 
@@ -474,21 +533,11 @@ const AddCar = () => {
         return;
       }
 
-      if (!String(car.location || '').trim()) {
-        reportSubmitError('Please provide a valid location');
-        setLoading(false);
-        return;
-      }
+      const normalizedLocation = finalizeCompactText(selectedLocationOption?.name || car.location);
+      const normalizedLocationId = String(selectedLocationOption?._id || car.locationId || '').trim();
 
-      const normalizedLocation = finalizeCompactText(car.location);
-      const branchCities = selectedBranch ? normalizeBranchCities(selectedBranch) : [];
-      const matchedBranchCity =
-        branchCities.length > 0
-          ? branchCities.find((city) => city.toLowerCase() === normalizedLocation.toLowerCase())
-          : normalizedLocation;
-
-      if (branchCities.length > 0 && !matchedBranchCity) {
-        reportSubmitError('Please select a city that belongs to the selected branch');
+      if (!normalizedLocationId || !normalizedLocation) {
+        reportSubmitError('Please select a valid pickup location for the selected branch');
         setLoading(false);
         return;
       }
@@ -528,6 +577,7 @@ const AddCar = () => {
         brand: finalizeCompactText(car.brand),
         model: finalizeCompactText(car.model),
         category: normalizedCategory,
+        locationId: normalizedLocationId,
         location: normalizedLocation,
         chassisNumber: normalizeUpperCodeText(car.chassisNumber).trim(),
         engineNumber: normalizeUpperCodeText(car.engineNumber).trim(),
@@ -584,7 +634,8 @@ const AddCar = () => {
       }
 
       CAR_FORM_FIELDS.forEach((key) => formData.append(key, preparedCar[key]));
-      formData.set('location', matchedBranchCity || normalizedLocation);
+      formData.set('locationId', normalizedLocationId);
+      formData.set('location', normalizedLocation);
 
       formData.append('features', JSON.stringify(cleanFeatures));
 
@@ -674,14 +725,26 @@ const AddCar = () => {
 
   useEffect(() => {
     if (!selectedBranch) return;
-    const branchCities = normalizeBranchCities(selectedBranch);
-    if (branchCities.length === 0) return;
-    if (car.location) return;
+    if (selectedLocationOption?._id) {
+      if (String(car.locationId || '') !== String(selectedLocationOption._id) || car.location !== selectedLocationOption.name) {
+        setCar((prev) => ({
+          ...prev,
+          locationId: String(selectedLocationOption._id || ''),
+          location: selectedLocationOption.name,
+        }));
+      }
+      return;
+    }
+    if (locationOptions.length === 0) return;
+    if (car.locationId || car.location) return;
+    const defaultLocation = locationOptions.find((location) => location.isPrimary) || locationOptions[0];
+    if (!defaultLocation) return;
     setCar((prev) => ({
       ...prev,
-      location: branchCities[0],
+      locationId: String(defaultLocation._id || ''),
+      location: defaultLocation.name,
     }));
-  }, [selectedBranch, car.location]);
+  }, [selectedBranch, selectedLocationOption, locationOptions, car.location, car.locationId]);
 
   useEffect(() => {
     if (!editId) return;
@@ -971,7 +1034,7 @@ const AddCar = () => {
                 <label className={labelClass}>Branch</label>
                 <select
                   value={car.branchId}
-                  onChange={(e) => setCar({ ...car, branchId: e.target.value, location: '' })}
+                  onChange={(e) => setCar({ ...car, branchId: e.target.value, locationId: '', location: '' })}
                   className={inputClass}
                   required
                   disabled={loadingBranches || (branchSelectionScoped && branchOptions.length <= 1)}
@@ -992,7 +1055,7 @@ const AddCar = () => {
                 <p className="mt-1 text-[11px] text-gray-500">
                   {branchSelectionScoped
                     ? 'Your role is scoped to assigned branch options.'
-                    : 'Choose the branch first to load allowed cities.'}
+                    : 'Choose the branch first to load assigned pickup locations.'}
                 </p>
               </div>
             </div>
@@ -1044,7 +1107,7 @@ const AddCar = () => {
                 <label className={labelClass}>Location</label>
                 <select
                   onChange={(event) => handleLocationSelection(event.target.value)}
-                  value={car.location}
+                  value={String(selectedLocationOption?._id || car.locationId || car.location || '')}
                   className={inputClass}
                   required
                   disabled={!car.branchId}
@@ -1056,9 +1119,9 @@ const AddCar = () => {
                         ? 'Select location'
                         : 'No location available'}
                   </option>
-                  {locationOptions.map((city) => (
-                    <option value={city} key={city}>
-                      {city}
+                  {locationOptions.map((location) => (
+                    <option value={String(location?._id || location?.name || '')} key={location?._id || location?.name}>
+                      {location.name}
                     </option>
                   ))}
                   {canManageBranchLocations ? (

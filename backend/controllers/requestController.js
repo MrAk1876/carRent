@@ -1,19 +1,14 @@
 const mongoose = require('mongoose');
 const Request = require('../models/Request');
-const Booking = require('../models/Booking');
 const Car = require('../models/Car');
 const {
   calculateAdvanceBreakdown,
-  resolveFinalAmount,
-  isAdvancePaidStatus,
 } = require('../utils/paymentUtils');
 const { resolveAvailabilityConflict } = require('../services/conflictResolver');
 const {
   parseDateTimeInput,
   validateRentalWindow,
   calculateTimeBasedRentalAmount,
-  calculateRentalDaysByCalendar,
-  normalizeRentalDaysValue,
   calculateFixedDropDateTime,
   resolveRentalDaysForFixedDrop,
   MIN_RENTAL_DAYS,
@@ -25,20 +20,20 @@ const { isStaffRole } = require('../utils/rbac');
 const { syncCarFleetStatusFromMaintenance } = require('../services/maintenanceService');
 const { assertCarBranchActive } = require('../services/branchService');
 const {
+  syncRequestLocationHierarchy,
+} = require('../services/locationHierarchyService');
+const { buildUserLocationPayload } = require('../services/userLocationService');
+const { buildLocationAlertSnapshot } = require('../services/locationAlertService');
+const {
   buildSubscriptionPricingForRequest,
-  reserveSubscriptionUsageForRequest,
-  rollbackSubscriptionUsageReservation,
-  appendSubscriptionUsageHistory,
   normalizeRentalType,
   normalizeBoolean,
 } = require('../services/subscriptionService');
 const {
   queuePendingPaymentEmailForRequest,
-  queueAdvancePaidConfirmationEmail,
 } = require('../services/bookingEmailNotificationService');
 const { resolveDepositForCar } = require('../services/depositRuleService');
-
-const ALLOWED_PAYMENT_METHODS = new Set(['CARD', 'UPI', 'NETBANKING', 'CASH']);
+const { completeAdvancePaymentForRequest } = require('../services/requestAdvancePaymentService');
 const MIN_RENTAL_DURATION_HOURS = 1;
 
 exports.createRequest = async (req, res) => {
@@ -54,6 +49,7 @@ exports.createRequest = async (req, res) => {
       pickupDateTime,
       dropDateTime,
       rentalDays,
+      branchId,
       gracePeriodHours,
       bargainPrice,
       useSubscription,
@@ -103,6 +99,9 @@ exports.createRequest = async (req, res) => {
       activeCar.isAvailable === false ? FLEET_STATUS.INACTIVE : FLEET_STATUS.AVAILABLE,
     );
     const { branch } = await assertCarBranchActive(activeCar, 'Vehicle temporarily unavailable');
+    if (branchId && String(branchId) !== String(branch?._id || '')) {
+      return res.status(422).json({ message: 'Selected pickup branch is not valid for this vehicle' });
+    }
     if (!isFleetBookable(currentFleetStatus)) {
       return res.status(422).json({
         message:
@@ -174,11 +173,46 @@ exports.createRequest = async (req, res) => {
       Number.isFinite(normalizedGracePeriodHoursInput) && normalizedGracePeriodHoursInput >= 0
         ? normalizedGracePeriodHoursInput
         : 1;
+    const userLocation = await buildUserLocationPayload(req.user);
+    const locationAlertSnapshot = buildLocationAlertSnapshot({
+      userLocation,
+      pickupLocation: {
+        stateId: activeCar?.stateId || branch?.stateId || null,
+        cityId: activeCar?.cityId || branch?.cityId || null,
+        locationId: activeCar?.locationId || null,
+        stateName:
+          activeCar?.locationId?.stateId?.name ||
+          activeCar?.stateId?.name ||
+          branch?.stateId?.name ||
+          branch?.state ||
+          '',
+        cityName:
+          activeCar?.locationId?.cityId?.name ||
+          activeCar?.cityId?.name ||
+          branch?.cityId?.name ||
+          activeCar?.city ||
+          branch?.city ||
+          '',
+        locationName: activeCar?.location || '',
+      },
+    });
 
     const requestData = {
       user: req.user._id,
       car: carId,
       branchId: branch?._id || null,
+      stateId: activeCar?.stateId || branch?.stateId || null,
+      cityId: activeCar?.cityId || branch?.cityId || null,
+      locationId: activeCar?.locationId || null,
+      locationName: String(activeCar?.location || '').trim(),
+      customerStateId: locationAlertSnapshot.customerStateId,
+      customerCityId: locationAlertSnapshot.customerCityId,
+      customerLocationId: locationAlertSnapshot.customerLocationId,
+      customerStateName: locationAlertSnapshot.customerStateName,
+      customerCityName: locationAlertSnapshot.customerCityName,
+      customerLocationName: locationAlertSnapshot.customerLocationName,
+      locationMismatchType: locationAlertSnapshot.locationMismatchType,
+      locationMismatchMessage: locationAlertSnapshot.locationMismatchMessage,
       fromDate: normalizedPickupDateTime,
       toDate: normalizedDropDateTime,
       pickupDateTime: normalizedPickupDateTime,
@@ -265,12 +299,17 @@ exports.createRequest = async (req, res) => {
     requestData.remainingAmount = effectiveRemainingAmount;
 
     const request = await Request.create(requestData);
+    const syncedRequestResult = await syncRequestLocationHierarchy(request, {
+      branch,
+      carId,
+    });
+    const syncedRequest = syncedRequestResult.request || request;
 
-    queuePendingPaymentEmailForRequest(request);
+    queuePendingPaymentEmailForRequest(syncedRequest);
 
     return res.status(201).json({
       message: 'Booking request created. Pay advance to confirm your booking.',
-      request,
+      request: syncedRequest,
     });
   } catch (err) {
     console.error(err);
@@ -280,7 +319,6 @@ exports.createRequest = async (req, res) => {
 };
 
 exports.payAdvance = async (req, res) => {
-  let subscriptionReservation = null;
   try {
     if (isStaffRole(req.user?.role)) {
       return res.status(403).json({ message: 'Staff cannot pay advance for rental bookings' });
@@ -288,202 +326,22 @@ exports.payAdvance = async (req, res) => {
 
     const { id } = req.params;
     const paymentMethod = String(req.body.paymentMethod || '').trim().toUpperCase();
-    const paymentOptionInput = String(req.body?.paymentOption || '').trim().toUpperCase();
-    const paymentOption = paymentOptionInput === 'FULL'
-      ? 'FULL'
-      : paymentOptionInput === 'DEPOSIT_ONLY'
-        ? 'DEPOSIT_ONLY'
-        : 'ADVANCE_POLICY';
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid request id' });
-    }
-
-    const request = await Request.findById(id).populate('car');
-    if (!request) {
-      return res.status(404).json({ message: 'Request not found' });
-    }
-
-    if (request.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Not allowed' });
-    }
-
-    if (request.status !== 'pending') {
-      return res.status(422).json({ message: 'Only pending requests can be paid' });
-    }
-
-    if (isAdvancePaidStatus(request.paymentStatus)) {
-      return res.status(422).json({ message: 'Advance is already paid for this request' });
-    }
-
-    if (!request.car) {
-      return res.status(422).json({ message: 'Car is no longer available' });
-    }
-
-    const syncResult = await syncCarFleetStatusFromMaintenance(request.car._id || request.car, { now: new Date() });
-    const activeCar = syncResult?.car || request.car;
-    const fleetStatus = normalizeFleetStatus(
-      activeCar.fleetStatus,
-      activeCar.isAvailable === false ? FLEET_STATUS.INACTIVE : FLEET_STATUS.AVAILABLE,
-    );
-    const { branch } = await assertCarBranchActive(activeCar, 'Vehicle temporarily unavailable');
-    if (![FLEET_STATUS.AVAILABLE, FLEET_STATUS.RESERVED].includes(fleetStatus)) {
-      return res.status(422).json({
-        message: fleetStatus === FLEET_STATUS.MAINTENANCE ? 'Vehicle under maintenance' : 'Vehicle temporarily unavailable',
-      });
-    }
-
-    const { pricing: confirmedPricing, reservation } = await reserveSubscriptionUsageForRequest(request, {
+    const paymentOption = String(req.body?.paymentOption || '').trim().toUpperCase();
+    const { booking: syncedBooking } = await completeAdvancePaymentForRequest({
+      requestId: id,
+      userId: req.user._id,
+      paymentMethod,
+      paymentOption,
+      paymentReference: req.body?.paymentReference || '',
       now: new Date(),
     });
-    subscriptionReservation = reservation;
-    const finalAmount = Number(confirmedPricing?.finalAmount || resolveFinalAmount(request) || 0);
-    const breakdown = calculateAdvanceBreakdown(finalAmount);
-    const resolvedDepositAmount = Number.isFinite(Number(request.depositAmount))
-      ? Math.max(Number(request.depositAmount), 0)
-      : 0;
-    const totalRentalAmount = Math.max(Number(breakdown.finalAmount || 0), 0);
-    const totalPayableNow = Number((totalRentalAmount + resolvedDepositAmount).toFixed(2));
-
-    let effectiveAdvanceRequired = Math.max(Number(breakdown.advanceRequired || 0), resolvedDepositAmount);
-    let effectiveRemainingAmount = Math.max(totalRentalAmount - effectiveAdvanceRequired, 0);
-    let effectivePaymentStatus = 'Partially Paid';
-    let fullPaymentAmount = effectiveRemainingAmount;
-    let fullPaymentMethod = 'NONE';
-    let fullPaymentReceivedAt = null;
-    let amountPaid = effectiveAdvanceRequired;
-    let amountRemaining = effectiveRemainingAmount;
-
-    if (paymentOption === 'DEPOSIT_ONLY') {
-      effectiveAdvanceRequired = resolvedDepositAmount;
-      effectiveRemainingAmount = totalRentalAmount;
-      fullPaymentAmount = totalRentalAmount;
-      amountPaid = resolvedDepositAmount;
-      amountRemaining = totalRentalAmount;
-    } else if (paymentOption === 'FULL') {
-      effectiveAdvanceRequired = resolvedDepositAmount;
-      effectiveRemainingAmount = 0;
-      effectivePaymentStatus = 'Fully Paid';
-      fullPaymentAmount = totalRentalAmount;
-      fullPaymentMethod = paymentMethod;
-      fullPaymentReceivedAt = new Date();
-      amountPaid = totalPayableNow;
-      amountRemaining = 0;
-    }
-
-    const requiresPaymentMethod = (paymentOption === 'FULL' ? totalPayableNow : effectiveAdvanceRequired) > 0;
-    if (requiresPaymentMethod && !ALLOWED_PAYMENT_METHODS.has(paymentMethod)) {
-      if (subscriptionReservation?.coveredHours > 0) {
-        await rollbackSubscriptionUsageReservation(subscriptionReservation);
-        subscriptionReservation = null;
-      }
-      return res.status(422).json({ message: 'paymentMethod must be CARD, UPI, NETBANKING, or CASH' });
-    }
-
-    const normalizedPaymentMethod =
-      requiresPaymentMethod
-        ? paymentMethod
-        : ALLOWED_PAYMENT_METHODS.has(paymentMethod)
-          ? paymentMethod
-          : 'NONE';
-
-    let finalBargain;
-    if (request.bargain && request.bargain.status && request.bargain.status !== 'NONE') {
-      finalBargain = {
-        ...request.bargain.toObject(),
-        status: 'LOCKED',
-      };
-    }
-
-    const booking = await Booking.create({
-      user: request.user,
-      car: request.car._id,
-      branchId: request.branchId || branch?._id || null,
-      fromDate: request.fromDate,
-      toDate: request.toDate,
-      pickupDateTime: request.pickupDateTime || request.fromDate,
-      dropDateTime: request.dropDateTime || request.toDate,
-      rentalDays:
-        normalizeRentalDaysValue(request.rentalDays, { min: 1, max: 3650, allowNull: true }) ||
-        normalizeRentalDaysValue(
-          calculateRentalDaysByCalendar(request.pickupDateTime || request.fromDate, request.dropDateTime || request.toDate),
-          { min: 1, max: 3650, allowNull: true },
-        ) ||
-        1,
-      priceRangeType: String(request.priceRangeType || '').trim() || 'LOW_RANGE',
-      depositAmount: Number.isFinite(Number(request.depositAmount))
-        ? Math.max(Number(request.depositAmount), 0)
-        : 0,
-      depositPaid: Number.isFinite(Number(request.depositAmount))
-        ? Math.max(Number(request.depositAmount), 0)
-        : 0,
-      depositRefunded: 0,
-      depositDeducted: 0,
-      depositStatus: Number.isFinite(Number(request.depositAmount)) && Number(request.depositAmount) > 0
-        ? 'HELD'
-        : 'NOT_APPLICABLE',
-      actualPickupTime: null,
-      actualReturnTime: null,
-      gracePeriodHours: Number.isFinite(Number(request.gracePeriodHours))
-        ? Math.max(Number(request.gracePeriodHours), 0)
-        : 1,
-      rentalStage: 'Scheduled',
-      totalAmount: breakdown.finalAmount,
-      lockedPerDayPrice: Number(request?.lockedPerDayPrice || 0),
-      basePerDayPrice: Number(request?.basePerDayPrice || 0),
-      pricingBaseAmount: Number(request?.pricingBaseAmount || 0),
-      pricingLockedAmount: Number(request?.pricingLockedAmount || 0),
-      priceSource: request?.priceSource || 'Base',
-      priceAdjustmentPercent: Number(request?.priceAdjustmentPercent || 0),
-      finalAmount: breakdown.finalAmount,
-      totalRentalAmount,
-      advanceAmount: effectiveAdvanceRequired,
-      advanceRequired: effectiveAdvanceRequired,
-      advancePaid: effectiveAdvanceRequired,
-      remainingAmount: effectiveRemainingAmount,
-      amountPaid,
-      amountRemaining,
-      rentalType: confirmedPricing?.rentalType || normalizeRentalType(request?.rentalType, 'OneTime'),
-      subscriptionPlanId: confirmedPricing?.subscriptionPlanId || request?.subscriptionPlanId || null,
-      userSubscriptionId: confirmedPricing?.userSubscriptionId || request?.userSubscriptionId || null,
-      subscriptionBaseAmount: confirmedPricing?.subscriptionBaseAmount || request?.subscriptionBaseAmount || breakdown.finalAmount,
-      subscriptionHoursUsed: confirmedPricing?.subscriptionHoursUsed || 0,
-      subscriptionCoverageAmount: confirmedPricing?.subscriptionCoverageAmount || 0,
-      subscriptionExtraAmount: confirmedPricing?.subscriptionExtraAmount || breakdown.finalAmount,
-      subscriptionLateFeeDiscountPercentage: confirmedPricing?.subscriptionLateFeeDiscountPercentage || 0,
-      subscriptionDamageFeeDiscountPercentage: confirmedPricing?.subscriptionDamageFeeDiscountPercentage || 0,
-      paymentMethod: normalizedPaymentMethod,
-      paymentStatus: effectivePaymentStatus,
-      fullPaymentAmount,
-      fullPaymentMethod,
-      fullPaymentReceivedAt,
-      bookingStatus: 'Confirmed',
-      tripStatus: 'upcoming',
-      bargain: finalBargain,
-    });
-
-    if (subscriptionReservation) {
-      const settledReservation = subscriptionReservation;
-      subscriptionReservation = null;
-      try {
-        await appendSubscriptionUsageHistory(settledReservation, booking?._id || null);
-      } catch (usageHistoryError) {
-        console.error('Failed to append subscription usage history:', usageHistoryError);
-      }
-    }
-
-    await Request.findByIdAndDelete(request._id);
-    queueAdvancePaidConfirmationEmail(booking);
 
     return res.json({
       message: 'Advance payment successful. Booking confirmed.',
-      booking,
+      booking: syncedBooking,
     });
   } catch (error) {
     console.error(error);
-    if (subscriptionReservation?.coveredHours > 0) {
-      await rollbackSubscriptionUsageReservation(subscriptionReservation);
-    }
     const status = Number(error?.status || 500);
     const message = status >= 500 ? 'Failed to record advance payment' : error.message;
     return res.status(status).json({ message });

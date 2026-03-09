@@ -1,5 +1,18 @@
 import { ROLES, getRolePermissions, hasRolePermission, isStaffRole, normalizeRole } from './rbac';
 
+const normalizeId = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  if (value?._id) return String(value._id).trim();
+  return '';
+};
+
+const normalizeName = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  return String(value?.name || '').trim();
+};
+
 export const getUser = () => {
   const data = localStorage.getItem('user');
   if (!data) return null;
@@ -18,6 +31,12 @@ export const getUser = () => {
       ...parsed,
       role,
       permissions,
+      stateId: normalizeId(parsed.stateId),
+      cityId: normalizeId(parsed.cityId),
+      locationId: normalizeId(parsed.locationId),
+      stateName: normalizeName(parsed.stateName || parsed.stateId),
+      cityName: normalizeName(parsed.cityName || parsed.cityId),
+      locationName: normalizeName(parsed.locationName || parsed.locationId),
       assignedBranches: Array.isArray(parsed.assignedBranches) ? parsed.assignedBranches : [],
     };
   } catch {

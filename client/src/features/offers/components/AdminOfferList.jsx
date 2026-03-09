@@ -110,16 +110,6 @@ const AdminOfferList = () => {
     });
   }, [search, sortedOffers, statusFilter]);
 
-  const getUserOfferHistory = (offer) => {
-    if (Array.isArray(offer.userOfferHistory) && offer.userOfferHistory.length > 0) {
-      return offer.userOfferHistory;
-    }
-    if (Number.isFinite(Number(offer.offeredPrice))) {
-      return [Number(offer.offeredPrice)];
-    }
-    return [];
-  };
-
   return (
     <div className="h-full min-h-0 max-w-6xl flex flex-col gap-4">
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -202,8 +192,6 @@ const AdminOfferList = () => {
           {filteredOffers.map((offer) => {
             const userName = `${offer.user?.firstName || ''} ${offer.user?.lastName || ''}`.trim() || 'Unknown User';
             const status = String(offer.status || '').toLowerCase();
-            const attempts = Number(offer.offerCount || 0);
-            const history = getUserOfferHistory(offer);
             const isBusy = loadingId === offer._id;
 
             return (
@@ -226,7 +214,7 @@ const AdminOfferList = () => {
                   </span>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                   <div className="rounded-lg bg-light p-3">
                     <p className="text-xs text-gray-500">Original</p>
                     <p className="font-semibold text-gray-800">
@@ -249,24 +237,10 @@ const AdminOfferList = () => {
                     </p>
                   </div>
                   <div className="rounded-lg bg-light p-3">
-                    <p className="text-xs text-gray-500">Attempts</p>
-                    <p className="font-semibold text-gray-800">{attempts}/3</p>
+                    <p className="text-xs text-gray-500">Flow</p>
+                    <p className="font-semibold text-gray-800">Single user offer</p>
                   </div>
                 </div>
-
-                {history.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    {history.map((amount, index) => (
-                      <span
-                        key={`${offer._id}-history-${index}`}
-                        className="px-2.5 py-1 rounded-full border border-borderColor bg-white text-gray-600"
-                      >
-                        Round {index + 1}: {currency}
-                        {amount}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
 
                 {offer.message ? (
                   <p className="mt-3 text-sm text-gray-600 border border-borderColor rounded-lg px-3 py-2 bg-light/40">

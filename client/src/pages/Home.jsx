@@ -22,7 +22,7 @@ const Home = () => {
             <div className="rounded-xl bg-light p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Step 2</p>
               <p className="mt-1 font-semibold text-slate-800">Negotiate If Needed</p>
-              <p className="text-sm text-slate-600 mt-1">Submit offers with up to 3 rounds in a guided flow.</p>
+              <p className="text-sm text-slate-600 mt-1">Submit one offer, then review the admin response.</p>
             </div>
             <div className="rounded-xl bg-light p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Step 3</p>

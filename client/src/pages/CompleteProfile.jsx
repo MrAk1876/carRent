@@ -2,8 +2,22 @@ import React, { useState } from 'react';
 import dayjs from 'dayjs';
 import API, { getErrorMessage } from '../api';
 import UniversalCalendarInput from '../components/UniversalCalendarInput';
+import LocationSelector from '../components/LocationSelector';
+import { getPublicCities, getPublicLocations, getPublicStates } from '../services/locationService';
+import {
+  buildLocationSelectionPayload,
+  findLocationOption,
+  loadPreferredLocationSelection,
+  saveLocationSelection,
+} from '../services/locationSelectionService';
 
 const PLACEHOLDER_AVATAR = 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
+const normalizeStoredId = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (value?._id) return String(value._id);
+  return '';
+};
 
 const CompleteProfile = () => {
   const todayDateKey = dayjs().format('YYYY-MM-DD');
@@ -11,7 +25,14 @@ const CompleteProfile = () => {
     phone: '',
     address: '',
     dob: '',
+    stateId: '',
+    cityId: '',
+    locationId: '',
   });
+  const [stateOptions, setStateOptions] = useState([]);
+  const [cityOptions, setCityOptions] = useState([]);
+  const [locationOptions, setLocationOptions] = useState([]);
+  const [locationLoading, setLocationLoading] = useState(false);
 
   const [image, setImage] = useState(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState('');
@@ -60,8 +81,126 @@ const CompleteProfile = () => {
       return 'You must be at least 18 years old';
     }
 
+    if (!form.stateId || !form.cityId || !form.locationId) {
+      return 'Select your default state, city, and pickup location';
+    }
+
     return null;
   };
+
+  React.useEffect(() => {
+    const savedUser = (() => {
+      try {
+        return JSON.parse(localStorage.getItem('user') || '{}');
+      } catch {
+        return {};
+      }
+    })();
+
+    const preferredLocation = loadPreferredLocationSelection();
+    setForm((previous) => ({
+      ...previous,
+      phone: savedUser?.phone || previous.phone || '',
+      address: savedUser?.address || previous.address || '',
+      dob: savedUser?.dob || previous.dob || '',
+      stateId: normalizeStoredId(savedUser?.stateId) || preferredLocation.stateId || '',
+      cityId: normalizeStoredId(savedUser?.cityId) || preferredLocation.cityId || '',
+      locationId: normalizeStoredId(savedUser?.locationId) || preferredLocation.locationId || '',
+    }));
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const loadStates = async () => {
+      try {
+        setLocationLoading(true);
+        const states = await getPublicStates();
+        if (cancelled) return;
+        setStateOptions(states);
+      } catch {
+        if (!cancelled) setStateOptions([]);
+      } finally {
+        if (!cancelled) setLocationLoading(false);
+      }
+    };
+
+    loadStates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!form.stateId) {
+      setCityOptions([]);
+      setLocationOptions([]);
+      setForm((previous) =>
+        previous.cityId || previous.locationId ? { ...previous, cityId: '', locationId: '' } : previous,
+      );
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadCities = async () => {
+      try {
+        setLocationLoading(true);
+        const cities = await getPublicCities(form.stateId);
+        if (cancelled) return;
+        setCityOptions(cities);
+        if (form.cityId && !cities.some((city) => String(city?._id || '') === String(form.cityId))) {
+          setForm((previous) => ({ ...previous, cityId: '', locationId: '' }));
+        }
+      } catch {
+        if (!cancelled) setCityOptions([]);
+      } finally {
+        if (!cancelled) setLocationLoading(false);
+      }
+    };
+
+    loadCities();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.stateId, form.cityId]);
+
+  React.useEffect(() => {
+    if (!form.cityId) {
+      setLocationOptions([]);
+      setForm((previous) => (previous.locationId ? { ...previous, locationId: '' } : previous));
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadLocations = async () => {
+      try {
+        setLocationLoading(true);
+        const locations = await getPublicLocations(form.cityId);
+        if (cancelled) return;
+        setLocationOptions(locations);
+        if (
+          form.locationId &&
+          !locations.some((location) => String(location?._id || '') === String(form.locationId))
+        ) {
+          setForm((previous) => ({ ...previous, locationId: '' }));
+        }
+      } catch {
+        if (!cancelled) setLocationOptions([]);
+      } finally {
+        if (!cancelled) setLocationLoading(false);
+      }
+    };
+
+    loadLocations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.cityId, form.locationId]);
 
   const handleImageSelect = (event) => {
     const file = event.target.files?.[0] || null;
@@ -106,6 +245,9 @@ const CompleteProfile = () => {
       formData.append('address', form.address);
       formData.append('dob', form.dob);
       formData.append('age', age);
+      formData.append('stateId', form.stateId);
+      formData.append('cityId', form.cityId);
+      formData.append('locationId', form.locationId);
 
       if (image) {
         formData.append('image', image);
@@ -119,6 +261,13 @@ const CompleteProfile = () => {
       const updated = { ...old, ...res.data.user };
 
       localStorage.setItem('user', JSON.stringify(updated));
+      saveLocationSelection(
+        buildLocationSelectionPayload({
+          stateOption: findLocationOption(stateOptions, { id: updated?.stateId || form.stateId }),
+          cityOption: findLocationOption(cityOptions, { id: updated?.cityId || form.cityId }),
+          locationOption: findLocationOption(locationOptions, { id: updated?.locationId || form.locationId }),
+        }),
+      );
       window.location.href = '/';
     } catch (err) {
       setErrorMsg(getErrorMessage(err, 'Profile update failed'));
@@ -212,6 +361,32 @@ const CompleteProfile = () => {
                 onChange={(e) => setForm({ ...form, address: e.target.value })}
               />
             </div>
+
+            <LocationSelector
+              stateOptions={stateOptions}
+              cityOptions={cityOptions}
+              locationOptions={locationOptions}
+              selectedStateId={form.stateId}
+              selectedCityId={form.cityId}
+              selectedLocationId={form.locationId}
+              onStateChange={(stateId) =>
+                setForm((previous) => ({ ...previous, stateId, cityId: '', locationId: '' }))
+              }
+              onCityChange={(cityId) =>
+                setForm((previous) => ({ ...previous, cityId, locationId: '' }))
+              }
+              onLocationChange={(locationId) => setForm((previous) => ({ ...previous, locationId }))}
+              loading={locationLoading}
+              required
+              wrapperClassName="grid grid-cols-1 gap-4"
+              itemClassName=""
+              labelClassName="text-xs font-medium uppercase tracking-wide text-slate-500"
+              selectClassName="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              stateLabel="Default State"
+              cityLabel="Default City"
+              locationLabel="Default Pickup Location"
+              locationPlaceholder="Select pickup location"
+            />
           </div>
 
           {errorMsg ? (

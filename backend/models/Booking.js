@@ -156,6 +156,73 @@ const bookingSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    stateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'State',
+      default: null,
+      index: true,
+    },
+    cityId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'City',
+      default: null,
+      index: true,
+    },
+    locationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Location',
+      default: null,
+      index: true,
+    },
+    locationName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    customerStateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'State',
+      default: null,
+      index: true,
+    },
+    customerCityId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'City',
+      default: null,
+      index: true,
+    },
+    customerLocationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Location',
+      default: null,
+      index: true,
+    },
+    customerStateName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    customerCityName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    customerLocationName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    locationMismatchType: {
+      type: String,
+      enum: ['NONE', 'OTHER_LOCATION', 'OTHER_CITY', 'OTHER_STATE'],
+      default: 'NONE',
+      index: true,
+    },
+    locationMismatchMessage: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     assignedDriver: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Driver',
@@ -392,7 +459,7 @@ const bookingSchema = new mongoose.Schema(
 
     paymentMethod: {
       type: String,
-      enum: ['NONE', 'CARD', 'UPI', 'NETBANKING', 'CASH'],
+      enum: ['NONE', 'CARD', 'UPI', 'NETBANKING', 'CASH', 'WALLET'],
       default: 'NONE',
     },
 
@@ -426,7 +493,7 @@ const bookingSchema = new mongoose.Schema(
 
     fullPaymentMethod: {
       type: String,
-      enum: ['NONE', 'CARD', 'UPI', 'NETBANKING', 'CASH'],
+      enum: ['NONE', 'CARD', 'UPI', 'NETBANKING', 'CASH', 'WALLET'],
       default: 'NONE',
     },
 

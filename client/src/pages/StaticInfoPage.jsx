@@ -8,7 +8,7 @@ const PAGE_CONTENT = {
       'Need help with booking, payments, or negotiations? Use these quick support notes before contacting our team.',
     points: [
       'Booking requests are reviewed by admin after advance payment.',
-      'Negotiation supports up to 3 rounds for eligible listings.',
+      'Negotiation allows one user offer followed by an admin response.',
       'Advance payment may be refundable if admin rejects your request.',
       'Use My Bookings to track status, counters, and payment progress.',
     ],

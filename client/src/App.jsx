@@ -15,6 +15,8 @@ const CarDetail = lazy(() => import('./pages/CarDetail'));
 const Cars = lazy(() => import('./pages/Cars'));
 const MyBookings = lazy(() => import('./pages/MyBookings'));
 const MyRentalStatus = lazy(() => import('./pages/MyRentalStatus'));
+const PaymentGateway = lazy(() => import('./pages/PaymentGateway'));
+const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'));
 const SubscriptionPlans = lazy(() => import('./pages/SubscriptionPlans'));
 const MySubscription = lazy(() => import('./pages/MySubscription'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
@@ -172,6 +174,14 @@ const App = () => {
                 element={loggedIn && !staff ? <MyBookings /> : <Navigate to={userPageFallback} replace />}
               />
               <Route
+                path="/gateway/:token"
+                element={loggedIn && !staff ? <PaymentGateway /> : <Navigate to={userPageFallback} replace />}
+              />
+              <Route
+                path="/payment-success/:token"
+                element={loggedIn && !staff ? <PaymentSuccess /> : <Navigate to={userPageFallback} replace />}
+              />
+              <Route
                 path="/my-subscription"
                 element={loggedIn && !staff ? <MySubscription /> : <Navigate to={userPageFallback} replace />}
               />
@@ -276,6 +286,14 @@ const App = () => {
                   element={can(PERMISSIONS.MANAGE_ROLES) ? <ManageRoles /> : <Navigate to="/owner/profile" replace />}
                 />
                 <Route
+                  path="states"
+                  element={can(PERMISSIONS.MANAGE_ROLES) ? <Navigate to="/owner/branches" replace /> : <Navigate to="/owner/profile" replace />}
+                />
+                <Route
+                  path="cities"
+                  element={can(PERMISSIONS.MANAGE_ROLES) ? <Navigate to="/owner/locations" replace /> : <Navigate to="/owner/profile" replace />}
+                />
+                <Route
                   path="branches"
                   element={can(PERMISSIONS.MANAGE_ROLES) ? <ManageBranches /> : <Navigate to="/owner/profile" replace />}
                 />
@@ -326,6 +344,14 @@ const App = () => {
               <Route
                 path="/admin/deposit-rules"
                 element={staff ? <Navigate to="/owner/deposit-rules" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="/admin/states"
+                element={staff ? <Navigate to="/owner/branches" replace /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="/admin/cities"
+                element={staff ? <Navigate to="/owner/locations" replace /> : <Navigate to="/" replace />}
               />
               <Route
                 path="/admin/branches"

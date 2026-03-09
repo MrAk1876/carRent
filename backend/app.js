@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/db');
 const { bootstrapBranchSystem } = require('./services/branchService');
+const { bootstrapLocationHierarchy } = require('./services/locationHierarchyService');
 const { bootstrapTenantSystem } = require('./services/tenantService');
 const { startReminderScheduler } = require('./services/reminderSchedulerService');
 const { runWithTenantContext } = require('./services/tenantContextService');
@@ -49,7 +50,10 @@ const ensureDbConnection = () => {
     .then((defaultTenant) =>
       runWithTenantContext(
         { tenantId: String(defaultTenant?._id || '') },
-        () => bootstrapBranchSystem(),
+        async () => {
+          await bootstrapBranchSystem();
+          await bootstrapLocationHierarchy();
+        },
       ),
     )
     .catch((error) => {
@@ -110,6 +114,7 @@ const createApp = (options = {}) => {
   app.use('/api/offers', require('./routes/offerRoutes'));
   app.use('/api/reviews', require('./routes/reviewRoutes'));
   app.use('/api/contact', require('./routes/contactRoutes'));
+  app.use('/api/locations', require('./routes/publicLocationRoutes'));
   app.use('/api/invoice', require('./routes/invoiceRoutes'));
   app.use('/api/subscriptions', require('./routes/subscriptionRoutes'));
   app.use('/api/tenant', require('./routes/tenantRoutes'));
@@ -119,11 +124,13 @@ const createApp = (options = {}) => {
   app.use('/api', require('./routes/messageRoutes'));
   app.use('/api', require('./routes/notificationRoutes'));
   app.use('/api', require('./routes/aiRoutes'));
+  app.use('/api/payments', require('./routes/paymentGatewayRoutes'));
   app.use('/api', require('./routes/pushRoutes'));
   app.use('/api/admin', require('./routes/adminRoutes'));
   app.use('/api/admin', require('./routes/autoMessageRoutes'));
   app.use('/api/admin', require('./routes/fleetAvailabilityRoutes'));
   app.use('/api/admin', require('./routes/depositRoutes'));
+  app.use('/api/admin', require('./routes/locationHierarchyRoutes'));
   app.use('/api/user', userRoutes);
 
   return app;

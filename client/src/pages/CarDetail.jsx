@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { assets } from '../assets/assets';
-import { isAdmin, isLoggedIn } from '../utils/auth';
+import { getUser, isAdmin, isLoggedIn } from '../utils/auth';
 import MakeOfferForm from '../features/offers/components/MakeOfferForm';
 import InlineSpinner from '../components/ui/InlineSpinner';
 import ScrollReveal from '../components/ui/ScrollReveal';
 import API, { getErrorMessage } from '../api';
-import { getCarById } from '../services/carService';
+import { getCarById, getCarPickupSummary } from '../services/carService';
 import { getCarReviews } from '../services/reviewService';
 import { createBookingRequest } from '../services/requestService';
 import useNotify from '../hooks/useNotify';
@@ -18,6 +18,8 @@ import {
   getRentalDurationHours,
 } from '../utils/payment';
 import { getMySubscription } from '../services/subscriptionService';
+import { loadPreferredLocationSelection } from '../services/locationSelectionService';
+import { buildLocationLabel, LOCATION_ALERT_TYPES, resolveLocationAlert } from '../utils/locationAlerts';
 
 const parseCarFeatures = (features) => {
   const parsed = [];
@@ -142,6 +144,10 @@ const roundCurrency = (value) => {
   if (!Number.isFinite(numericValue) || numericValue <= 0) return 0;
   return Number(numericValue.toFixed(2));
 };
+const getBranchStateName = (branch, fallback = '') =>
+  String(branch?.stateId?.name || branch?.state || fallback || '').trim();
+const getBranchCityName = (branch, fallback = '') =>
+  String(branch?.cityId?.name || branch?.city || fallback || '').trim();
 
 const calculateSubscriptionPreview = ({
   baseAmount = 0,
@@ -240,6 +246,7 @@ const CarDetail = () => {
   const [pickupMinute, setPickupMinute] = useState(() => getDefaultTimeParts().minute);
   const [pickupPeriod, setPickupPeriod] = useState(() => getDefaultTimeParts().period);
   const [rentalDays, setRentalDays] = useState(MIN_RENTAL_DAYS);
+  const [selectedPickupBranchId, setSelectedPickupBranchId] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState('');
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
@@ -328,6 +335,78 @@ const CarDetail = () => {
     if (typeof branch === 'string') return branch;
     return branch?._id || '';
   }, [car]);
+  const pickupBranch = useMemo(() => {
+    const branch = car?.branchId || null;
+    return branch && typeof branch === 'object' ? branch : null;
+  }, [car]);
+  const pickupSummary = useMemo(() => getCarPickupSummary(car || {}), [car]);
+  const pickupBranchStateName = useMemo(
+    () => pickupSummary.pickupStateName || getBranchStateName(pickupBranch, car?.state),
+    [pickupBranch, pickupSummary.pickupStateName, car?.state],
+  );
+  const pickupBranchCityName = useMemo(
+    () => pickupSummary.pickupCityName || getBranchCityName(pickupBranch, car?.city || car?.location),
+    [pickupBranch, pickupSummary.pickupCityName, car?.city, car?.location],
+  );
+  const pickupLocationName = useMemo(
+    () => pickupSummary.pickupLocationName || car?.location || pickupBranchCityName,
+    [pickupSummary.pickupLocationName, car?.location, pickupBranchCityName],
+  );
+  const pickupBranchAddress = useMemo(
+    () => pickupSummary.pickupAddress || [pickupBranch?.address, pickupLocationName, pickupBranchCityName, pickupBranchStateName].filter(Boolean).join(', '),
+    [pickupBranch?.address, pickupBranchCityName, pickupBranchStateName, pickupLocationName, pickupSummary.pickupAddress],
+  );
+  const currentUser = useMemo(() => getUser(), []);
+  const preferredLocationSelection = useMemo(() => loadPreferredLocationSelection(), []);
+  const bookingUserLocation = useMemo(
+    () =>
+      currentUser?.stateId || currentUser?.cityId || currentUser?.locationId
+        ? {
+            stateId: currentUser?.stateId,
+            cityId: currentUser?.cityId,
+            locationId: currentUser?.locationId,
+            stateName: currentUser?.stateName,
+            cityName: currentUser?.cityName,
+            locationName: currentUser?.locationName,
+          }
+        : preferredLocationSelection,
+    [
+      currentUser?.cityId,
+      currentUser?.cityName,
+      currentUser?.locationId,
+      currentUser?.locationName,
+      currentUser?.stateId,
+      currentUser?.stateName,
+      preferredLocationSelection,
+    ],
+  );
+  const bookingLocationAlert = useMemo(
+    () =>
+      resolveLocationAlert({
+        userStateId: bookingUserLocation.stateId,
+        userCityId: bookingUserLocation.cityId,
+        userLocationId: bookingUserLocation.locationId,
+        userStateName: bookingUserLocation.stateName,
+        userCityName: bookingUserLocation.cityName,
+        userLocationName: bookingUserLocation.locationName,
+        pickupStateId: pickupSummary.pickupStateId,
+        pickupCityId: pickupSummary.pickupCityId,
+        pickupLocationId: pickupSummary.pickupLocationId,
+        pickupStateName: pickupBranchStateName,
+        pickupCityName: pickupBranchCityName,
+        pickupLocationName: pickupLocationName,
+      }),
+    [bookingUserLocation, pickupBranchCityName, pickupBranchStateName, pickupLocationName, pickupSummary],
+  );
+  const userLocationLabel = useMemo(
+    () =>
+      buildLocationLabel(
+        bookingUserLocation.locationName,
+        bookingUserLocation.cityName,
+        bookingUserLocation.stateName,
+      ),
+    [bookingUserLocation.cityName, bookingUserLocation.locationName, bookingUserLocation.stateName],
+  );
   const subscriptionEligibleForCar = useMemo(() => {
     if (!activeSubscription) return false;
     if (!subscriptionBranchId) return true;
@@ -371,6 +450,10 @@ const CarDetail = () => {
   );
   const advancePercent = useMemo(() => Math.round(quoteBreakdown.advanceRate * 100), [quoteBreakdown.advanceRate]);
   const features = useMemo(() => parseCarFeatures(car?.features), [car?.features]);
+
+  useEffect(() => {
+    setSelectedPickupBranchId(carBranchId || '');
+  }, [carBranchId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -484,10 +567,19 @@ const CarDetail = () => {
       return;
     }
 
+    if (!selectedPickupBranchId) {
+      setBookingError('Pickup branch is not configured for this vehicle.');
+      return;
+    }
+
     try {
       setBookingLoading(true);
       await createBookingRequest({
         carId: car._id,
+        branchId: selectedPickupBranchId,
+        stateId: pickupSummary.pickupStateId,
+        cityId: pickupSummary.pickupCityId,
+        locationId: pickupSummary.pickupLocationId,
         pickupDateTime: pickupDateTimeIso,
         dropDateTime: dropDateTimeIso,
         rentalDays: normalizedRentalDays,
@@ -579,9 +671,38 @@ const CarDetail = () => {
               </div>
               <div className="rounded-lg border border-borderColor bg-light px-3 py-4 text-center">
                 <img src={assets.location_icon} alt="location" className="h-5 mx-auto mb-2" />
-                <p className="text-sm font-medium text-gray-700">{car.location}</p>
+                <p className="text-sm font-medium text-gray-700">{pickupLocationName}</p>
               </div>
             </div>
+
+            <div className="mt-5 rounded-xl border border-borderColor bg-slate-50 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Pickup Location</p>
+              <p className="mt-1 text-base font-semibold text-slate-900">{pickupLocationName}</p>
+              <p className="mt-1 text-sm text-slate-700">Branch: {pickupSummary.pickupBranchName || pickupBranch?.branchName || 'Assigned Branch'}</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {pickupBranchAddress || 'Branch address will be shared after confirmation.'}
+              </p>
+            </div>
+
+            {bookingLocationAlert.type !== LOCATION_ALERT_TYPES.NONE ? (
+              <div
+                className={`mt-4 rounded-xl border px-4 py-3 ${
+                  bookingLocationAlert.type === LOCATION_ALERT_TYPES.OTHER_STATE
+                    ? 'border-red-200 bg-red-50 text-red-800'
+                    : 'border-amber-200 bg-amber-50 text-amber-800'
+                }`}
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.14em]">
+                  {bookingLocationAlert.type === LOCATION_ALERT_TYPES.OTHER_STATE
+                    ? 'Cross-State Booking Warning'
+                    : 'Other Location Warning'}
+                </p>
+                <p className="mt-1 text-sm font-medium">{bookingLocationAlert.message}</p>
+                {userLocationLabel ? (
+                  <p className="mt-1 text-xs opacity-90">Your profile location: {userLocationLabel}</p>
+                ) : null}
+              </div>
+            ) : null}
 
             {features.length > 0 ? (
               <div className="mt-6">
@@ -773,6 +894,23 @@ const CarDetail = () => {
 
             <div className="rounded-lg border border-borderColor bg-light p-3 text-xs text-gray-500">
               Drop-time policy: drop is always fixed at 06:00 AM based on selected rental days.
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-600">Pickup Branch</label>
+              <select
+                value={selectedPickupBranchId}
+                onChange={(event) => setSelectedPickupBranchId(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-borderColor bg-white px-3 py-2.5 text-sm outline-none"
+                disabled
+              >
+                <option value={carBranchId}>
+                  {pickupBranch?.branchName || 'Assigned Branch'}
+                </option>
+              </select>
+              <p className="mt-2 text-xs text-gray-500">
+                {pickupBranchAddress || 'Branch address unavailable'}
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3">

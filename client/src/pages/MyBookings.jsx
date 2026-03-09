@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import API, { getErrorMessage } from '../api';
 import Title from '../components/Title';
 import LiveLateFeeSummary from '../components/ui/LiveLateFeeSummary';
@@ -6,6 +7,7 @@ import LiveStageCountdown from '../components/ui/LiveStageCountdown';
 import UserOfferList from '../features/offers/components/UserOfferList';
 import useNotify from '../hooks/useNotify';
 import useSmartPolling from '../hooks/useSmartPolling';
+import { createPaymentSession } from '../services/paymentGatewayService';
 import {
   calculateAdvanceBreakdown,
   getNormalizedStatusKey,
@@ -41,10 +43,10 @@ import {
 const MyBookings = () => {
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const notify = useNotify();
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState([]);
   const [requests, setRequests] = useState([]);
   const [offers, setOffers] = useState([]);
-  const [requestPaymentMethodById, setRequestPaymentMethodById] = useState({});
   const [bookingBargainById, setBookingBargainById] = useState({});
   const [reviewsByBookingId, setReviewsByBookingId] = useState({});
   const [reviewDraftByBookingId, setReviewDraftByBookingId] = useState({});
@@ -232,14 +234,13 @@ const MyBookings = () => {
   };
 
   const payRequestAdvance = async (requestId) => {
-    const paymentMethod = requestPaymentMethodById[requestId] || 'CARD';
     try {
       setLoadingActionId(requestId);
-      await API.put(`/requests/${requestId}/pay-advance`, { paymentMethod });
-      await fetchBookings();
-      notify.success('Advance payment recorded');
+      const response = await createPaymentSession({ bookingId: requestId });
+      const redirectUrl = response?.redirectUrl || `/gateway/${response?.token || ''}`;
+      navigate(redirectUrl);
     } catch (apiError) {
-      notify.error(getErrorMessage(apiError, 'Failed to record payment'));
+      notify.error(getErrorMessage(apiError, 'Failed to initialize payment'));
     } finally {
       setLoadingActionId('');
     }
@@ -551,7 +552,7 @@ const MyBookings = () => {
               ) : null}
 
               {item.type === 'booking' && item.bargain ? (
-                <p className="text-xs text-gray-400">Attempts: {item.bargain.userAttempts || 0}/3</p>
+                <p className="text-xs text-gray-400">Negotiation flow: Single user offer</p>
               ) : null}
 
               {item.type === 'request' && (
@@ -866,11 +867,11 @@ const MyBookings = () => {
               {item.type === 'booking' &&
                 isNegotiableBooking(item) &&
                 item.bargain &&
-                !['LOCKED', 'ADMIN_COUNTERED', 'ACCEPTED'].includes(item.bargain.status) && (
+                ['NONE', ''].includes(String(item.bargain.status || '').trim().toUpperCase()) && (
                   <div className="w-full space-y-2">
                     <input
                       type="number"
-                      placeholder="Offer a new price"
+                      placeholder="Send your offer"
                       value={bookingBargainById[item._id] || ''}
                       onChange={(e) => setBookingBargainById((prev) => ({ ...prev, [item._id]: e.target.value }))}
                       className="border border-borderColor px-3 py-2 rounded w-full text-sm"
@@ -880,7 +881,7 @@ const MyBookings = () => {
                       onClick={() => submitBookingBargain(item._id)}
                       className="bg-yellow-500 text-white px-4 py-1 rounded text-sm"
                     >
-                      {loadingActionId === item._id ? 'Submitting...' : 'Submit Bargain'}
+                      {loadingActionId === item._id ? 'Submitting...' : 'Send Offer'}
                     </button>
                   </div>
                 )}
@@ -910,27 +911,12 @@ const MyBookings = () => {
                 <div className="w-full space-y-2">
                   {!isAdvancePaidStatus(item.paymentStatus) ? (
                     <>
-                      <select
-                        value={requestPaymentMethodById[item._id] || 'CARD'}
-                        onChange={(e) =>
-                          setRequestPaymentMethodById((prev) => ({
-                            ...prev,
-                            [item._id]: e.target.value,
-                          }))
-                        }
-                        className="border border-borderColor rounded px-2 py-2 text-xs w-full"
-                      >
-                        <option value="CARD">Card</option>
-                        <option value="UPI">UPI</option>
-                        <option value="NETBANKING">Net Banking</option>
-                        <option value="CASH">Cash</option>
-                      </select>
                       <button
                         disabled={loadingActionId === item._id}
                         onClick={() => payRequestAdvance(item._id)}
                         className="bg-green-600 text-white px-4 py-1 rounded text-sm"
                       >
-                        {loadingActionId === item._id ? 'Processing...' : 'Pay Advance'}
+                        {loadingActionId === item._id ? 'Redirecting...' : 'Pay Now'}
                       </button>
                     </>
                   ) : (

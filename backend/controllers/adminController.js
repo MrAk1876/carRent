@@ -4,6 +4,7 @@ const Car = require('../models/Car');
 const CarCategory = require('../models/CarCategory');
 const Maintenance = require('../models/Maintenance');
 const Branch = require('../models/Branch');
+const Location = require('../models/Location');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { uploadImageFromBuffer, deleteImageByPublicId } = require('../utils/cloudinaryImage');
@@ -64,6 +65,12 @@ const {
   toValidBranchCode,
 } = require('../services/branchService');
 const {
+  syncBranchLocationHierarchy,
+  syncCarLocationHierarchy,
+  syncBookingLocationHierarchy,
+  ensureLocationDocument,
+} = require('../services/locationHierarchyService');
+const {
   reserveSubscriptionUsageForRequest,
   rollbackSubscriptionUsageReservation,
   appendSubscriptionUsageHistory,
@@ -101,6 +108,7 @@ const CAR_EDITABLE_FIELDS = [
   'fuel_type',
   'transmission',
   'location',
+  'locationId',
   'pricePerDay',
   'priceRangeType',
   'registrationNumber',
@@ -183,10 +191,26 @@ const normalizeBranchForClient = (branch) => {
     branchName: String(branch.branchName || '').trim(),
     branchCode: String(branch.branchCode || '').trim(),
     address: String(branch.address || '').trim(),
+    stateId:
+      typeof branch.stateId === 'object'
+        ? {
+            _id: String(branch.stateId?._id || ''),
+            name: String(branch.stateId?.name || '').trim(),
+          }
+        : String(branch.stateId || ''),
+    cityId:
+      typeof branch.cityId === 'object'
+        ? {
+            _id: String(branch.cityId?._id || ''),
+            name: String(branch.cityId?.name || '').trim(),
+          }
+        : String(branch.cityId || ''),
     city: String(branch.city || '').trim(),
     serviceCities,
     state: String(branch.state || '').trim(),
     contactNumber: String(branch.contactNumber || '').trim(),
+    latitude: Number.isFinite(Number(branch.latitude)) ? Number(branch.latitude) : null,
+    longitude: Number.isFinite(Number(branch.longitude)) ? Number(branch.longitude) : null,
     manager: branch.manager || null,
     isActive: Boolean(branch.isActive),
     dynamicPricingEnabled: Boolean(branch.dynamicPricingEnabled),
@@ -194,6 +218,70 @@ const normalizeBranchForClient = (branch) => {
     createdAt: branch.createdAt,
     updatedAt: branch.updatedAt,
   };
+};
+
+const normalizeLocationForClient = (location) => ({
+  _id: String(location?._id || '').trim(),
+  name: String(location?.name || '').trim(),
+  cityId:
+    typeof location?.cityId === 'object'
+      ? {
+          _id: String(location?.cityId?._id || '').trim(),
+          name: String(location?.cityId?.name || '').trim(),
+        }
+      : String(location?.cityId || '').trim(),
+  stateId:
+    typeof location?.stateId === 'object'
+      ? {
+          _id: String(location?.stateId?._id || '').trim(),
+          name: String(location?.stateId?.name || '').trim(),
+        }
+      : String(location?.stateId || '').trim(),
+  branchId:
+    typeof location?.branchId === 'object'
+      ? {
+          _id: String(location?.branchId?._id || '').trim(),
+          branchName: String(location?.branchId?.branchName || '').trim(),
+        }
+      : String(location?.branchId || '').trim(),
+  branchAddress: String(location?.branchAddress || '').trim(),
+  isPrimary: Boolean(location?.isPrimary),
+  isActive: Boolean(location?.isActive !== false),
+});
+
+const attachLocationsToBranches = async (branches = []) => {
+  const normalizedBranches = branches.map((branch) => normalizeBranchForClient(branch));
+  const branchIds = normalizedBranches.map((branch) => String(branch?._id || '')).filter(Boolean);
+  if (branchIds.length === 0) {
+    return normalizedBranches.map((branch) => ({ ...branch, locations: [] }));
+  }
+
+  await Promise.allSettled(branchIds.map((branchId) => syncBranchLocationHierarchy(branchId)));
+
+  const locations = await Location.find({
+    branchId: { $in: branchIds },
+    isActive: true,
+  })
+    .populate('cityId', 'name')
+    .populate('stateId', 'name')
+    .populate('branchId', 'branchName')
+    .sort({ isPrimary: -1, name: 1 })
+    .lean();
+
+  const locationsByBranchId = new Map();
+  locations.forEach((location) => {
+    const branchId = String(location?.branchId?._id || location?.branchId || '').trim();
+    if (!branchId) return;
+    const normalizedLocation = normalizeLocationForClient(location);
+    const branchLocations = locationsByBranchId.get(branchId) || [];
+    branchLocations.push(normalizedLocation);
+    locationsByBranchId.set(branchId, branchLocations);
+  });
+
+  return normalizedBranches.map((branch) => ({
+    ...branch,
+    locations: locationsByBranchId.get(String(branch?._id || '')) || [],
+  }));
 };
 
 const normalizeBranchInputList = (rawValue) => {
@@ -233,6 +321,11 @@ const normalizeCityList = (rawValue) => {
 
   return [];
 };
+
+const buildBranchLocationRefPatch = (branch) => ({
+  stateId: branch?.stateId || null,
+  cityId: branch?.cityId || null,
+});
 
 const resolveBranchAssignments = async (rawValue) => {
   const entries = normalizeBranchInputList(rawValue);
@@ -435,16 +528,17 @@ const toLocationUsageMap = (cars = []) => {
 
   cars.forEach((car) => {
     const branchId = String(car?.branchId || '').trim();
-    const location = normalizeLocationName(car?.location);
-    if (!branchId || !location) return;
+    const locationId = String(car?.locationId?._id || car?.locationId || '').trim();
+    const location = normalizeLocationName(car?.locationId?.name || car?.location);
+    if (!branchId || (!locationId && !location)) return;
 
     const branchUsage = usageByBranch.get(branchId) || new Map();
-    const key = location.toLowerCase();
+    const key = locationId || location.toLowerCase();
     const existingEntry = branchUsage.get(key);
     if (existingEntry) {
       existingEntry.carCount += 1;
     } else {
-      branchUsage.set(key, { name: location, carCount: 1 });
+      branchUsage.set(key, { name: location, carCount: 1, locationId });
     }
     usageByBranch.set(branchId, branchUsage);
   });
@@ -589,6 +683,49 @@ const normalizeLocationForBranch = (branch, locationValue) => {
   }
 
   return matchedCity;
+};
+
+const resolveLocationDocumentForBranch = async (branch, { locationId, locationName } = {}) => {
+  if (!branch?._id) {
+    const error = new Error('Branch is required');
+    error.status = 422;
+    throw error;
+  }
+
+  const normalizedLocationId = String(locationId || '').trim();
+  if (normalizedLocationId) {
+    const locationById = await Location.findOne({
+      _id: normalizedLocationId,
+      branchId: branch._id,
+      isActive: true,
+    });
+    if (!locationById) {
+      const error = new Error('Selected pickup location does not belong to the selected branch');
+      error.status = 422;
+      throw error;
+    }
+    return locationById;
+  }
+
+  const normalizedLocationName = normalizeLocationName(locationName);
+  if (!normalizedLocationName) {
+    const error = new Error('Location is required');
+    error.status = 422;
+    throw error;
+  }
+
+  const locationByName = await Location.findOne({
+    branchId: branch._id,
+    nameKey: normalizedLocationName.toLowerCase(),
+    isActive: true,
+  });
+  if (locationByName) {
+    return locationByName;
+  }
+
+  const error = new Error('Selected pickup location does not belong to the selected branch');
+  error.status = 422;
+  throw error;
 };
 
 const formatPricingHistoryEntry = (entry) => ({
@@ -841,6 +978,8 @@ exports.approveRequest = async (req, res) => {
       user: request.user._id,
       car: request.car._id,
       branchId: resolvedBranchId,
+      stateId: request.stateId || null,
+      cityId: request.cityId || null,
       fromDate: request.fromDate,
       toDate: request.toDate,
       pickupDateTime: request.pickupDateTime || request.fromDate,
@@ -902,6 +1041,10 @@ exports.approveRequest = async (req, res) => {
       bookingStatus: 'Confirmed',
       tripStatus: 'upcoming',
       bargain: finalBargain,
+    });
+    await syncBookingLocationHierarchy(booking, {
+      branch: request.branchId ? null : branch || null,
+      carId: request.car?._id || request.car,
     });
 
     if (subscriptionReservation) {
@@ -1238,8 +1381,8 @@ exports.handleBookingBargain = async (req, res) => {
 
     await assertBookingBranchScope(req.user, booking, 'Booking does not belong to your branch scope');
 
-    if (booking.bargain.status === 'LOCKED') {
-      return res.status(400).json({ message: 'Bargain already locked' });
+    if (booking.bargain.status !== 'USER_OFFERED') {
+      return res.status(400).json({ message: 'No pending user offer to respond to' });
     }
 
     if (action === 'accept') {
@@ -1543,7 +1686,8 @@ exports.getAllCars = async (req, res) => {
     }
 
     const cars = await Car.find(query)
-      .populate('branchId', 'branchName branchCode city state serviceCities isActive')
+      .populate('branchId', 'branchName branchCode address city state cityId stateId latitude longitude serviceCities isActive')
+      .populate('locationId', 'name branchAddress cityId stateId branchId isPrimary')
       .sort({ createdAt: -1 });
     res.status(200).json(cars);
   } catch (error) {
@@ -1566,7 +1710,7 @@ exports.getFleetOverview = async (req, res) => {
         ? (scopedBranchIds.length > 0 ? { _id: { $in: scopedBranchIds } } : { _id: { $in: [] } })
         : {};
     const branches = await Branch.find(branchQuery)
-      .select('_id branchName branchCode city state serviceCities isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
+      .select('_id branchName branchCode address city state cityId stateId latitude longitude serviceCities isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
       .sort({ branchName: 1 })
       .lean();
 
@@ -1826,7 +1970,15 @@ exports.addCar = async (req, res) => {
     const data = pickCarPayload(req.body);
     const targetBranch = await resolveBranchForCarWrite(req.user, req.body?.branchId);
     data.branchId = targetBranch?._id || null;
-    data.location = normalizeLocationForBranch(targetBranch, data.location);
+    const targetLocation = await resolveLocationDocumentForBranch(targetBranch, {
+      locationId: req.body?.locationId || data.locationId,
+      locationName: data.location,
+    });
+    data.locationId = targetLocation?._id || null;
+    data.location = normalizeLocationName(targetLocation?.name || data.location);
+    data.stateId = targetLocation?.stateId || targetBranch?.stateId || null;
+    data.cityId = targetLocation?.cityId || targetBranch?.cityId || null;
+    data.pickupAddress = String(targetLocation?.branchAddress || targetBranch?.address || '').trim();
     if (targetBranch && !targetBranch.isActive) {
       data.fleetStatus = FLEET_STATUS.INACTIVE;
       data.isAvailable = false;
@@ -1843,9 +1995,11 @@ exports.addCar = async (req, res) => {
       image: uploadedImage.url,
       imagePublicId: uploadedImage.publicId,
     });
+    const syncedCarResult = await syncCarLocationHierarchy(car, { branch: targetBranch });
+    const syncedCar = syncedCarResult.car || car;
     clearSmartPricingCache();
 
-    res.status(201).json(car);
+    res.status(201).json(syncedCar);
   } catch (error) {
     console.error('Add car error:', error);
     if (uploadedImage?.publicId) {
@@ -1929,8 +2083,19 @@ exports.updateCar = async (req, res) => {
     const previousBasePricePerDay = Number(existingCar.pricePerDay || 0);
     const { branch: existingBranch } = await ensureCarBranch(existingCar);
 
-    if (Object.prototype.hasOwnProperty.call(data, 'location')) {
-      data.location = normalizeLocationForBranch(existingBranch, data.location);
+    if (
+      Object.prototype.hasOwnProperty.call(data, 'location') ||
+      Object.prototype.hasOwnProperty.call(data, 'locationId')
+    ) {
+      const nextLocation = await resolveLocationDocumentForBranch(existingBranch, {
+        locationId: req.body?.locationId || data.locationId,
+        locationName: data.location || existingCar.location,
+      });
+      data.locationId = nextLocation?._id || null;
+      data.location = normalizeLocationName(nextLocation?.name || data.location || existingCar.location);
+      data.stateId = nextLocation?.stateId || existingBranch?.stateId || null;
+      data.cityId = nextLocation?.cityId || existingBranch?.cityId || null;
+      data.pickupAddress = String(nextLocation?.branchAddress || existingBranch?.address || '').trim();
     }
 
     if (req.file) {
@@ -1947,7 +2112,9 @@ exports.updateCar = async (req, res) => {
     }
 
     Object.assign(existingCar, data);
-    const updatedCar = await existingCar.save();
+    const updatedCarBase = await existingCar.save();
+    const syncedCarResult = await syncCarLocationHierarchy(updatedCarBase, { branch: existingBranch });
+    const updatedCar = syncedCarResult.car || updatedCarBase;
     if (Object.prototype.hasOwnProperty.call(data, 'pricePerDay')) {
       clearSmartPricingCache();
       const nextBasePricePerDay = Number(updatedCar.pricePerDay || 0);
@@ -2242,7 +2409,14 @@ exports.getAllBookings = async (req, res) => {
       .populate('car')
       .populate('subscriptionPlanId', 'planName durationType durationInDays')
       .populate('branchId', 'branchName branchCode city state serviceCities isActive')
-      .populate('user', 'firstName lastName email')
+      .populate({
+        path: 'user',
+        select: 'firstName lastName email stateId cityId',
+        populate: [
+          { path: 'stateId', select: 'name' },
+          { path: 'cityId', select: 'name stateId' },
+        ],
+      })
       .populate('assignedDriver', 'driverName phoneNumber licenseNumber licenseExpiry availabilityStatus isActive branchId currentAssignedBooking')
       .populate('pickupInspection.inspectedBy', 'firstName lastName email')
       .populate('returnInspection.inspectedBy', 'firstName lastName email')
@@ -2468,13 +2642,15 @@ exports.getBranchOptions = async (req, res) => {
         : {};
 
     const branches = await Branch.find(branchQuery)
-      .select('_id branchName branchCode city state serviceCities isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
+      .select('_id branchName branchCode address city state cityId stateId latitude longitude serviceCities isActive manager dynamicPricingEnabled dynamicPricingMultiplier')
       .sort({ branchName: 1 })
       .lean();
 
+    const branchesWithLocations = await attachLocationsToBranches(branches);
+
     return res.json({
       scoped: Array.isArray(scopedBranchIds),
-      branches: branches.map(normalizeBranchForClient),
+      branches: branchesWithLocations,
     });
   } catch (error) {
     console.error('getBranchOptions error:', error);
@@ -2761,9 +2937,18 @@ exports.getBranchLocations = async (req, res) => {
       .lean();
 
     const branchIds = branches.map((branch) => String(branch?._id || '')).filter(Boolean);
+    await Promise.allSettled(branchIds.map((branchId) => syncBranchLocationHierarchy(branchId)));
+    const branchLocationDocs = branchIds.length
+      ? await Location.find({ branchId: { $in: branchIds }, isActive: true })
+        .populate('cityId', 'name')
+        .populate('stateId', 'name')
+        .populate('branchId', 'branchName')
+        .sort({ isPrimary: -1, name: 1 })
+        .lean()
+      : [];
     const cars = branchIds.length
       ? await Car.find({ branchId: { $in: branchIds } })
-        .select('_id branchId location')
+        .select('_id branchId location locationId')
         .lean()
       : [];
     const usageByBranch = toLocationUsageMap(cars);
@@ -2772,27 +2957,33 @@ exports.getBranchLocations = async (req, res) => {
       const normalizedBranch = normalizeBranchForClient(branch);
       const branchId = String(branch?._id || '').trim();
       const branchUsage = usageByBranch.get(branchId) || new Map();
-      const primaryLocationKey = toLowerCaseKey(branch?.city);
+      const locationDocs = branchLocationDocs.filter(
+        (location) => String(location?.branchId?._id || location?.branchId || '') === branchId,
+      );
 
       const mergedLocations = new Map();
-      getBranchServiceCities(branch).forEach((locationName) => {
-        const key = toLowerCaseKey(locationName);
+      locationDocs.forEach((locationDoc) => {
+        const locationId = String(locationDoc?._id || '').trim();
+        const key = locationId || toLowerCaseKey(locationDoc?.name);
         if (!key) return;
-        const usageEntry = branchUsage.get(key);
+        const usageEntry = branchUsage.get(key) || branchUsage.get(toLowerCaseKey(locationDoc?.name));
         mergedLocations.set(key, {
-          name: normalizeLocationName(locationName),
+          ...normalizeLocationForClient(locationDoc),
           carCount: Number(usageEntry?.carCount || 0),
-          isPrimary: key === primaryLocationKey,
+          name: normalizeLocationName(locationDoc?.name),
+          isPrimary: Boolean(locationDoc?.isPrimary),
           legacyOnly: false,
         });
       });
 
       branchUsage.forEach((usageEntry, key) => {
-        if (mergedLocations.has(key)) return;
-        mergedLocations.set(key, {
+        const mergedKey = String(usageEntry?.locationId || '').trim() || key;
+        if (mergedLocations.has(mergedKey) || mergedLocations.has(key)) return;
+        mergedLocations.set(mergedKey, {
+          _id: '',
           name: usageEntry.name,
           carCount: Number(usageEntry.carCount || 0),
-          isPrimary: key === primaryLocationKey,
+          isPrimary: false,
           legacyOnly: true,
         });
       });
@@ -2819,28 +3010,35 @@ exports.getBranchLocations = async (req, res) => {
 exports.getCarsForBranchLocation = async (req, res) => {
   try {
     const branch = await resolveBranchForLocationWrite(req.user, req.query?.branchId || req.body?.branchId);
+    const requestedLocationId = String(req.query?.locationId || req.body?.locationId || '').trim();
     const locationName = normalizeLocationName(req.query?.name || req.body?.name);
-    if (!locationName) {
-      return res.status(422).json({ message: 'Location name is required' });
+    if (!requestedLocationId && !locationName) {
+      return res.status(422).json({ message: 'Location id or name is required' });
     }
 
-    const existingLocation = await resolveExistingBranchLocationName(branch, locationName);
-    if (!existingLocation) {
+    const locationDoc = await resolveLocationDocumentForBranch(branch, {
+      locationId: requestedLocationId,
+      locationName,
+    });
+    if (!locationDoc?._id) {
       return res.status(404).json({ message: 'Location not found in selected branch' });
     }
 
-    const locationRegex = new RegExp(`^${escapeRegExp(existingLocation)}$`, 'i');
     const cars = await Car.find({
       branchId: branch._id,
-      location: { $regex: locationRegex },
+      $or: [
+        { locationId: locationDoc._id },
+        { location: { $regex: new RegExp(`^${escapeRegExp(locationDoc.name)}$`, 'i') } },
+      ],
     })
-      .select('_id name brand model registrationNumber category location fleetStatus branchId')
+      .select('_id name brand model registrationNumber category location locationId fleetStatus branchId')
       .populate('branchId', 'branchName branchCode city state serviceCities isActive')
+      .populate('locationId', 'name branchAddress cityId stateId branchId isPrimary')
       .sort({ brand: 1, model: 1 })
       .lean();
 
     return res.json({
-      location: existingLocation,
+      location: normalizeLocationForClient(locationDoc),
       branch: normalizeBranchForClient(branch.toObject()),
       cars,
     });
@@ -2859,11 +3057,13 @@ exports.moveCarBranchLocation = async (req, res) => {
     const sourceBranch = await resolveBranchForLocationWrite(req.user, sourceBranchId);
     const targetBranch = await resolveBranchForLocationWrite(req.user, targetBranchId);
     const carId = String(req.body?.carId || '').trim();
+    const fromLocationId = String(req.body?.fromLocationId || '').trim();
+    const toLocationId = String(req.body?.toLocationId || '').trim();
     const fromLocation = normalizeLocationName(req.body?.fromLocation);
     const toLocation = normalizeLocationName(req.body?.toLocation);
 
-    if (!carId || !fromLocation || !toLocation) {
-      return res.status(422).json({ message: 'carId, fromLocation and toLocation are required' });
+    if (!carId || (!fromLocationId && !fromLocation) || (!toLocationId && !toLocation)) {
+      return res.status(422).json({ message: 'carId, source location and target location are required' });
     }
 
     const car = await Car.findById(carId);
@@ -2874,17 +3074,23 @@ exports.moveCarBranchLocation = async (req, res) => {
       return res.status(422).json({ message: 'Car does not belong to selected branch' });
     }
 
-    const resolvedFromLocation = await resolveExistingBranchLocationName(sourceBranch, fromLocation);
-    if (!resolvedFromLocation) {
+    const sourceLocationDoc = await resolveLocationDocumentForBranch(sourceBranch, {
+      locationId: fromLocationId,
+      locationName: fromLocation,
+    });
+    if (!sourceLocationDoc?._id) {
       return res.status(404).json({ message: 'Current location not found in selected branch' });
     }
-    if (toLowerCaseKey(car.location) !== toLowerCaseKey(resolvedFromLocation)) {
+    if (String(car.locationId || '') !== String(sourceLocationDoc._id) && toLowerCaseKey(car.location) !== toLowerCaseKey(sourceLocationDoc.name)) {
       return res.status(422).json({ message: 'Car is no longer assigned to selected location' });
     }
 
-    const nextLocation = normalizeLocationForBranch(targetBranch, toLocation);
+    const targetLocationDoc = await resolveLocationDocumentForBranch(targetBranch, {
+      locationId: toLocationId,
+      locationName: toLocation,
+    });
     const branchChanged = String(sourceBranch._id || '') !== String(targetBranch._id || '');
-    if (!branchChanged && toLowerCaseKey(nextLocation) === toLowerCaseKey(resolvedFromLocation)) {
+    if (!branchChanged && String(targetLocationDoc?._id || '') === String(sourceLocationDoc?._id || '')) {
       return res.status(422).json({ message: 'Target location must be different' });
     }
 
@@ -2904,14 +3110,20 @@ exports.moveCarBranchLocation = async (req, res) => {
       car.fleetStatus = FLEET_STATUS.INACTIVE;
       car.isAvailable = false;
     }
-    car.location = nextLocation;
+    car.locationId = targetLocationDoc?._id || null;
+    car.location = normalizeLocationName(targetLocationDoc?.name);
+    car.stateId = targetLocationDoc?.stateId || targetBranch?.stateId || null;
+    car.cityId = targetLocationDoc?.cityId || targetBranch?.cityId || null;
+    car.pickupAddress = String(targetLocationDoc?.branchAddress || targetBranch?.address || '').trim();
     await car.save();
+    await syncCarLocationHierarchy(car, { branch: targetBranch });
 
     return res.json({
       message: 'Car location updated successfully',
       car: {
         _id: String(car._id),
         location: normalizeLocationName(car.location),
+        locationId: String(car.locationId || ''),
         branchId: String(car.branchId || ''),
       },
       sourceBranch: normalizeBranchForClient(sourceBranch.toObject()),
@@ -2932,28 +3144,53 @@ exports.createBranchLocation = async (req, res) => {
     if (!locationName) {
       return res.status(422).json({ message: 'Location name is required' });
     }
+    const synced = await syncBranchLocationHierarchy(branch, { tenantId: branch.tenantId || null });
+    if (!synced?.state?._id || !synced?.city?._id) {
+      return res.status(422).json({ message: 'Branch must have a valid state and city before adding locations' });
+    }
 
-    const currentLocations = getBranchServiceCities(branch);
-    const existingLocation = findLocationMatch(currentLocations, locationName);
-    if (existingLocation) {
+    const existingLocation = await Location.findOne({
+      branchId: branch._id,
+      nameKey: locationName.toLowerCase(),
+      isActive: true,
+    })
+      .populate('cityId', 'name')
+      .populate('stateId', 'name')
+      .populate('branchId', 'branchName')
+      .lean();
+    if (existingLocation?._id) {
+      const [branchWithLocations] = await attachLocationsToBranches([branch.toObject()]);
       return res.status(200).json({
         message: 'Location already exists for this branch',
-        location: existingLocation,
-        branch: normalizeBranchForClient(branch.toObject()),
+        location: normalizeLocationForClient(existingLocation),
+        branch: branchWithLocations || normalizeBranchForClient(branch.toObject()),
       });
     }
 
-    const updatedCities = [...new Set([...currentLocations, locationName])];
-    branch.serviceCities = updatedCities;
-    if (!normalizeLocationName(branch.city)) {
-      branch.city = locationName;
-    }
-    await branch.save();
+    const createdLocation = await ensureLocationDocument({
+      branchId: branch._id,
+      cityId: synced.city._id,
+      stateId: synced.state._id,
+      name: locationName,
+      branchAddress: branch.address,
+      latitude: branch.latitude,
+      longitude: branch.longitude,
+      tenantId: branch.tenantId || null,
+    });
+
+    const populatedLocation = createdLocation
+      ? await Location.findById(createdLocation._id)
+        .populate('cityId', 'name')
+        .populate('stateId', 'name')
+        .populate('branchId', 'branchName')
+        .lean()
+      : null;
+    const [branchWithLocations] = await attachLocationsToBranches([branch.toObject()]);
 
     return res.status(201).json({
       message: 'Location added successfully',
-      location: locationName,
-      branch: normalizeBranchForClient(branch.toObject()),
+      location: populatedLocation ? normalizeLocationForClient(populatedLocation) : { _id: '', name: locationName },
+      branch: branchWithLocations || normalizeBranchForClient(branch.toObject()),
     });
   } catch (error) {
     console.error('createBranchLocation error:', error);
@@ -2966,53 +3203,53 @@ exports.createBranchLocation = async (req, res) => {
 exports.renameBranchLocation = async (req, res) => {
   try {
     const branch = await resolveBranchForLocationWrite(req.user, req.body?.branchId);
+    const locationId = String(req.body?.locationId || '').trim();
     const currentName = normalizeLocationName(req.body?.currentName);
     const nextName = normalizeLocationName(req.body?.nextName);
 
     if (!currentName || !nextName) {
       return res.status(422).json({ message: 'currentName and nextName are required' });
     }
-
-    const currentLocations = getBranchServiceCities(branch);
-    const existingCurrentLocation = await resolveExistingBranchLocationName(branch, currentName);
-    if (!existingCurrentLocation) {
-      return res.status(404).json({ message: 'Location not found in selected branch' });
-    }
-
-    const existingNextLocation = findLocationMatch(currentLocations, nextName);
-    if (
-      existingNextLocation &&
-      toLowerCaseKey(existingNextLocation) !== toLowerCaseKey(existingCurrentLocation)
-    ) {
+    const locationDoc = await resolveLocationDocumentForBranch(branch, {
+      locationId,
+      locationName: currentName,
+    });
+    const duplicateLocation = await Location.findOne({
+      _id: { $ne: locationDoc._id },
+      branchId: branch._id,
+      nameKey: nextName.toLowerCase(),
+      isActive: true,
+    })
+      .select('_id')
+      .lean();
+    if (duplicateLocation?._id) {
       return res.status(422).json({ message: 'Target location already exists in selected branch' });
     }
 
-    const mappedLocations = currentLocations.map((locationName) =>
-      toLowerCaseKey(locationName) === toLowerCaseKey(existingCurrentLocation)
-        ? nextName
-        : locationName,
-    );
-    branch.serviceCities = [...new Set([...mappedLocations, nextName])];
-    if (toLowerCaseKey(branch.city) === toLowerCaseKey(existingCurrentLocation)) {
-      branch.city = nextName;
-    }
-    await branch.save();
+    locationDoc.name = nextName;
+    locationDoc.branchAddress = String(branch.address || locationDoc.branchAddress || '').trim();
+    await locationDoc.save();
 
-    const locationRegex = new RegExp(`^${escapeRegExp(existingCurrentLocation)}$`, 'i');
-    const updateResult = await Car.updateMany(
-      {
-        branchId: branch._id,
-        location: { $regex: locationRegex },
-      },
-      {
-        $set: { location: nextName },
-      },
-    );
+    const cars = await Car.find({
+      branchId: branch._id,
+      $or: [
+        { locationId: locationDoc._id },
+        { location: { $regex: new RegExp(`^${escapeRegExp(currentName)}$`, 'i') } },
+      ],
+    });
+    for (const car of cars) {
+      car.locationId = locationDoc._id;
+      car.location = nextName;
+      car.pickupAddress = String(locationDoc.branchAddress || branch.address || '').trim();
+      await car.save();
+    }
+
+    const [branchWithLocations] = await attachLocationsToBranches([branch.toObject()]);
 
     return res.json({
       message: 'Location updated successfully',
-      branch: normalizeBranchForClient(branch.toObject()),
-      movedCars: Number(updateResult?.modifiedCount || 0),
+      branch: branchWithLocations || normalizeBranchForClient(branch.toObject()),
+      movedCars: cars.length,
     });
   } catch (error) {
     console.error('renameBranchLocation error:', error);
@@ -3026,22 +3263,18 @@ exports.deleteBranchLocation = async (req, res) => {
   try {
     const branchId = req.query?.branchId || req.body?.branchId;
     const locationName = req.query?.name || req.body?.name;
+    const locationId = req.query?.locationId || req.body?.locationId;
     const branch = await resolveBranchForLocationWrite(req.user, branchId);
-    const normalizedLocationName = normalizeLocationName(locationName);
-    if (!normalizedLocationName) {
-      return res.status(422).json({ message: 'Location name is required' });
-    }
-
-    const currentLocations = getBranchServiceCities(branch);
-    const existingLocation = await resolveExistingBranchLocationName(branch, normalizedLocationName);
-    if (!existingLocation) {
-      return res.status(404).json({ message: 'Location not found in selected branch' });
-    }
-
-    const locationRegex = new RegExp(`^${escapeRegExp(existingLocation)}$`, 'i');
+    const locationDoc = await resolveLocationDocumentForBranch(branch, {
+      locationId,
+      locationName,
+    });
     const carsUsingLocation = await Car.countDocuments({
       branchId: branch._id,
-      location: { $regex: locationRegex },
+      $or: [
+        { locationId: locationDoc._id },
+        { location: { $regex: new RegExp(`^${escapeRegExp(locationDoc.name)}$`, 'i') } },
+      ],
     });
     if (carsUsingLocation > 0) {
       return res.status(422).json({
@@ -3049,19 +3282,12 @@ exports.deleteBranchLocation = async (req, res) => {
         carCount: carsUsingLocation,
       });
     }
-
-    const updatedLocations = currentLocations.filter(
-      (locationValue) => toLowerCaseKey(locationValue) !== toLowerCaseKey(existingLocation),
-    );
-    branch.serviceCities = updatedLocations;
-    if (toLowerCaseKey(branch.city) === toLowerCaseKey(existingLocation)) {
-      branch.city = updatedLocations[0] || '';
-    }
-    await branch.save();
+    await locationDoc.deleteOne();
+    const [branchWithLocations] = await attachLocationsToBranches([branch.toObject()]);
 
     return res.json({
       message: 'Location deleted successfully',
-      branch: normalizeBranchForClient(branch.toObject()),
+      branch: branchWithLocations || normalizeBranchForClient(branch.toObject()),
     });
   } catch (error) {
     console.error('deleteBranchLocation error:', error);
@@ -3075,25 +3301,18 @@ exports.setBranchPrimaryLocation = async (req, res) => {
   try {
     const branch = await resolveBranchForLocationWrite(req.user, req.body?.branchId);
     const locationName = normalizeLocationName(req.body?.name);
-    if (!locationName) {
-      return res.status(422).json({ message: 'Location name is required' });
-    }
-
-    const existingLocation = await resolveExistingBranchLocationName(branch, locationName);
-    if (!existingLocation) {
-      return res.status(404).json({ message: 'Location not found in selected branch' });
-    }
-
-    const branchCities = getBranchServiceCities(branch);
-    if (!findLocationMatch(branchCities, existingLocation)) {
-      branch.serviceCities = [...new Set([...branchCities, existingLocation])];
-    }
-    branch.city = existingLocation;
-    await branch.save();
+    const locationId = String(req.body?.locationId || '').trim();
+    const locationDoc = await resolveLocationDocumentForBranch(branch, {
+      locationId,
+      locationName,
+    });
+    await Location.updateMany({ branchId: branch._id }, { $set: { isPrimary: false } });
+    await Location.updateOne({ _id: locationDoc._id }, { $set: { isPrimary: true } });
+    const [branchWithLocations] = await attachLocationsToBranches([branch.toObject()]);
 
     return res.json({
       message: 'Primary location updated successfully',
-      branch: normalizeBranchForClient(branch.toObject()),
+      branch: branchWithLocations || normalizeBranchForClient(branch.toObject()),
     });
   } catch (error) {
     console.error('setBranchPrimaryLocation error:', error);
@@ -3161,8 +3380,9 @@ exports.getCarsForBranch = async (req, res) => {
     }
 
     const cars = await Car.find({ branchId: branch._id })
-      .select('_id name brand model registrationNumber category location fleetStatus branchId')
+      .select('_id name brand model registrationNumber category location locationId fleetStatus branchId')
       .populate('branchId', 'branchName branchCode city state serviceCities isActive')
+      .populate('locationId', 'name branchAddress cityId stateId branchId isPrimary')
       .sort({ brand: 1, model: 1 })
       .lean();
 
@@ -3220,14 +3440,20 @@ exports.createBranch = async (req, res) => {
     const requestedServiceCities = normalizeCityList(req.body?.serviceCities);
     const serviceCities = [...new Set([requestedCity, ...requestedServiceCities].filter(Boolean))];
 
-    const branch = await Branch.create({
+    let branch = await Branch.create({
       branchName,
       branchCode,
       address: String(req.body?.address || '').trim(),
+      stateId: req.body?.stateId || null,
+      cityId: req.body?.cityId || null,
       city: requestedCity || serviceCities[0] || '',
       serviceCities,
       state: String(req.body?.state || '').trim(),
       contactNumber: parseOptionalTenDigitPhone(req.body?.contactNumber, 'contactNumber'),
+      latitude:
+        Number.isFinite(Number(req.body?.latitude)) ? Number(req.body.latitude) : null,
+      longitude:
+        Number.isFinite(Number(req.body?.longitude)) ? Number(req.body.longitude) : null,
       manager: managerId,
       isActive: req.body?.isActive !== undefined ? parseBooleanInput(req.body.isActive, true) : true,
       dynamicPricingEnabled:
@@ -3239,6 +3465,9 @@ exports.createBranch = async (req, res) => {
           ? Number(req.body.dynamicPricingMultiplier)
           : 1,
     });
+
+    const syncedBranchResult = await syncBranchLocationHierarchy(branch);
+    branch = syncedBranchResult.branch || branch;
 
     if (managerId) {
       const manager = await User.findById(managerId);
@@ -3300,11 +3529,41 @@ exports.updateBranch = async (req, res) => {
     }
 
     if (req.body?.address !== undefined) branch.address = String(req.body.address || '').trim();
+    if (req.body?.stateId !== undefined) {
+      if (req.body.stateId === null || req.body.stateId === '') {
+        branch.stateId = null;
+      } else if (!mongoose.Types.ObjectId.isValid(String(req.body.stateId))) {
+        return res.status(422).json({ message: 'Invalid stateId' });
+      } else {
+        branch.stateId = req.body.stateId;
+      }
+    }
+    if (req.body?.cityId !== undefined) {
+      if (req.body.cityId === null || req.body.cityId === '') {
+        branch.cityId = null;
+      } else if (!mongoose.Types.ObjectId.isValid(String(req.body.cityId))) {
+        return res.status(422).json({ message: 'Invalid cityId' });
+      } else {
+        branch.cityId = req.body.cityId;
+      }
+    }
     if (req.body?.city !== undefined) branch.city = String(req.body.city || '').trim();
     if (req.body?.serviceCities !== undefined) {
       branch.serviceCities = normalizeCityList(req.body.serviceCities);
     }
     if (req.body?.state !== undefined) branch.state = String(req.body.state || '').trim();
+    if (req.body?.latitude !== undefined) {
+      branch.latitude =
+        req.body.latitude === null || req.body.latitude === ''
+          ? null
+          : Number(req.body.latitude);
+    }
+    if (req.body?.longitude !== undefined) {
+      branch.longitude =
+        req.body.longitude === null || req.body.longitude === ''
+          ? null
+          : Number(req.body.longitude);
+    }
     if (req.body?.contactNumber !== undefined) {
       branch.contactNumber = parseOptionalTenDigitPhone(req.body.contactNumber, 'contactNumber');
     }
@@ -3351,6 +3610,14 @@ exports.updateBranch = async (req, res) => {
     }
 
     await branch.save();
+    const syncedBranchResult = await syncBranchLocationHierarchy(branch);
+    const syncedBranch = syncedBranchResult.branch || branch;
+    const branchLocationRefPatch = buildBranchLocationRefPatch(syncedBranch);
+    await Promise.allSettled([
+      Car.updateMany({ branchId: syncedBranch._id }, { $set: branchLocationRefPatch }),
+      Request.updateMany({ branchId: syncedBranch._id }, { $set: branchLocationRefPatch }),
+      Booking.updateMany({ branchId: syncedBranch._id }, { $set: branchLocationRefPatch }),
+    ]);
 
     let inactivatedCars = 0;
     if (shouldForceCarsInactive) {
@@ -3374,7 +3641,7 @@ exports.updateBranch = async (req, res) => {
 
     return res.json({
       message: 'Branch updated successfully',
-      branch: normalizeBranchForClient(branch.toObject()),
+      branch: normalizeBranchForClient(syncedBranch.toObject()),
       inactivatedCars,
     });
   } catch (error) {
@@ -3465,11 +3732,13 @@ exports.transferCarBranch = async (req, res) => {
       car.isAvailable = false;
     }
     await car.save();
+    const syncedCarResult = await syncCarLocationHierarchy(car, { branch: targetBranch });
+    const syncedCar = syncedCarResult.car || car;
     clearSmartPricingCache();
 
     return res.json({
       message: 'Vehicle transferred successfully',
-      car,
+      car: syncedCar,
       branch: normalizeBranchForClient(targetBranch.toObject()),
     });
   } catch (error) {

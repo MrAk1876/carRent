@@ -8,19 +8,25 @@ const {
   resolveTenantFromRequestContext,
   assertTenantEntityLimit,
 } = require('../services/tenantLimitService');
+const { resolveUserLocationSelection, buildUserLocationPayload } = require('../services/userLocationService');
 
 const MIN_PASSWORD_LENGTH = 8;
 
-const buildUserAuthPayload = (user, options = {}) => {
+const buildUserAuthPayload = async (user, options = {}) => {
   const resolvedRole = normalizeRole(user?.role);
   const permissions = getPermissionsForRole(resolvedRole);
   const tenant = options.tenant || null;
+  const locationPayload = await buildUserLocationPayload(user, options);
 
   return {
     _id: user?._id,
     firstName: user?.firstName,
     lastName: user?.lastName,
     email: user?.email,
+    phone: user?.phone || '',
+    address: user?.address || '',
+    dob: user?.dob || '',
+    age: user?.age ?? null,
     role: resolvedRole,
     permissions,
     isProfileComplete: user?.isProfileComplete,
@@ -30,13 +36,14 @@ const buildUserAuthPayload = (user, options = {}) => {
     tenantCode: String(tenant?.companyCode || ''),
     tenantStatus: String(tenant?.tenantStatus || ''),
     tenantName: String(tenant?.companyName || ''),
+    ...locationPayload,
   };
 };
 
 // REGISTER
 exports.register = async (req, res) => {
   try {
-    const { firstName, lastName, email, password } = req.body;
+    const { firstName, lastName, email, password, stateId, cityId, locationId } = req.body;
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const safeFirstName = String(firstName || '').trim();
     const safeLastName = String(lastName || '').trim();
@@ -70,6 +77,12 @@ exports.register = async (req, res) => {
       limitField: 'maxUsers',
       label: 'users',
     });
+    const { state, city, location } = await resolveUserLocationSelection({
+      stateId,
+      cityId,
+      locationId,
+      required: true,
+    });
 
     const user = await User.create({
       firstName: safeFirstName,
@@ -78,9 +91,17 @@ exports.register = async (req, res) => {
       password,
       role: ROLE.USER,
       tenantId: tenant._id,
+      stateId: state._id,
+      cityId: city._id,
+      locationId: location._id,
     });
 
-    const payload = buildUserAuthPayload(user, { tenant });
+    const payload = await buildUserAuthPayload(user, {
+      tenant,
+      state,
+      city,
+      location,
+    });
 
     const token = jwt.sign(
       { id: user._id, role: payload.role },
@@ -132,7 +153,7 @@ exports.login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-    const payload = buildUserAuthPayload(user, { tenant });
+    const payload = await buildUserAuthPayload(user, { tenant });
     const token = jwt.sign({ id: user._id, role: payload.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({

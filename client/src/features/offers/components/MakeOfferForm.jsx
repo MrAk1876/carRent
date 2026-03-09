@@ -87,7 +87,7 @@ const MakeOfferForm = ({ carId, fromDate, toDate, originalPrice = 0, onSuccess }
       <p className="font-medium text-gray-700">Make a Negotiation Offer</p>
       <p className="text-xs text-gray-400 mt-1">
         Original quote: {currency}
-        {originalPrice || 0}. Negotiation supports up to 3 rounds.
+        {originalPrice || 0}. You can submit one offer and then wait for admin response.
       </p>
 
       <div className="mt-3 space-y-2">

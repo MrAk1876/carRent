@@ -19,6 +19,7 @@ const { runPendingPaymentTimeoutSweep } = require('../services/bookingPaymentTim
 const { queuePendingPaymentEmailForBooking } = require('../services/bookingEmailNotificationService');
 const { releaseDriverForBooking } = require('../services/driverAllocationService');
 const { resolveDepositForCar } = require('../services/depositRuleService');
+const { syncBookingLocationHierarchy } = require('../services/locationHierarchyService');
 
 const assertBookingInScope = async (user, booking, message) => {
   if (booking?.branchId) {
@@ -126,6 +127,8 @@ exports.createRequest = async (req, res) => {
         user: req.user._id,
         car: carId,
         branchId: branch?._id || null,
+        stateId: branch?.stateId || null,
+        cityId: branch?.cityId || null,
         fromDate,
         toDate,
         pickupDateTime: fromDate,
@@ -164,6 +167,11 @@ exports.createRequest = async (req, res) => {
           status: 'NONE',
         },
       });
+      const syncedBookingResult = await syncBookingLocationHierarchy(booking, {
+        branch,
+        carId,
+      });
+      booking = syncedBookingResult.booking || booking;
     } catch (creationError) {
       await releaseCarIfUnblocked(carId);
       throw creationError;
@@ -290,7 +298,7 @@ exports.adminRejectBooking = async (req, res) => {
     res.status(status).json({ message });
   }
 };
-// User bargain price (max 3 attempts)
+// User bargain price (single user offer, admin responds once)
 exports.userBargainPrice = async (req, res) => {
   try {
     const { offeredPrice } = req.body;
@@ -320,32 +328,36 @@ exports.userBargainPrice = async (req, res) => {
       });
     }
 
-    // Bargain locked check
-    if (booking.bargain.status === 'LOCKED') {
+    const currentStatus = String(booking?.bargain?.status || 'NONE').trim().toUpperCase();
+    const attemptsUsed = Number(booking?.bargain?.userAttempts || 0);
+
+    if (currentStatus === 'LOCKED') {
       return res.status(400).json({
-        message: 'Bargaining limit exceeded. You must accept original price.',
+        message: 'Negotiation is already closed for this booking',
       });
     }
 
-    if (booking.bargain.status === 'ADMIN_COUNTERED') {
+    if (currentStatus === 'ADMIN_COUNTERED') {
       return res.status(400).json({
         message: 'Please respond to the admin counter offer first',
       });
     }
 
-    if (booking.bargain.status === 'ACCEPTED') {
+    if (currentStatus === 'USER_OFFERED') {
+      return res.status(400).json({
+        message: 'You have already sent your offer. Wait for admin response.',
+      });
+    }
+
+    if (currentStatus === 'ACCEPTED') {
       return res.status(400).json({
         message: 'Negotiation is already accepted for this booking',
       });
     }
 
-    // Attempt limit check
-    if (booking.bargain.userAttempts >= 3) {
-      booking.bargain.status = 'LOCKED';
-      await booking.save();
-
+    if (currentStatus === 'REJECTED' || attemptsUsed >= 1) {
       return res.status(400).json({
-        message: 'Maximum bargain attempts reached',
+        message: 'Only one user offer is allowed for this booking',
       });
     }
 
@@ -354,7 +366,7 @@ exports.userBargainPrice = async (req, res) => {
     }
 
     // Save user bargain
-    booking.bargain.userAttempts += 1;
+    booking.bargain.userAttempts = 1;
     booking.bargain.userPrice = normalizedOfferedPrice;
     booking.bargain.status = 'USER_OFFERED';
     booking.totalAmount = normalizedOfferedPrice;
@@ -372,7 +384,7 @@ exports.userBargainPrice = async (req, res) => {
     res.json({
       message: 'Bargain request submitted',
       attemptsUsed: booking.bargain.userAttempts,
-      maxAttempts: 3,
+      maxAttempts: 1,
     });
   } catch (error) {
     const status = Number(error?.status || 500);

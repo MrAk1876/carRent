@@ -22,8 +22,6 @@ const statusBadge = (status) => {
 const UserOfferList = ({ offers, onRefresh }) => {
   const currency = import.meta.env.VITE_CURRENCY || '\u20B9';
   const notify = useNotify();
-  const [counterById, setCounterById] = useState({});
-  const [messageById, setMessageById] = useState({});
   const [loadingId, setLoadingId] = useState('');
 
   const sortedOffers = useMemo(() => {
@@ -33,13 +31,7 @@ const UserOfferList = ({ offers, onRefresh }) => {
   const respond = async (offerId, action) => {
     try {
       setLoadingId(offerId);
-      const payload = { action };
-      if (action === 'counter') {
-        payload.offeredPrice = Number(counterById[offerId]);
-        payload.message = messageById[offerId] || '';
-      }
-
-      await API.put(`/offers/${offerId}/respond`, payload);
+      await API.put(`/offers/${offerId}/respond`, { action });
       if (onRefresh) onRefresh();
       notify.success('Offer response submitted');
     } catch (error) {
@@ -86,34 +78,15 @@ const UserOfferList = ({ offers, onRefresh }) => {
                 {offer.counterPrice}
               </p>
             ) : null}
-            <p>Attempts: {offer.offerCount}/3</p>
+            <p>Negotiation Flow: One user offer</p>
             {offer.message ? <p>Note: {offer.message}</p> : null}
           </div>
 
           {offer.status === 'countered' && (
             <div className="mt-3 space-y-2">
-              {offer.offerCount < 3 ? (
-                <div className="grid md:grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    value={counterById[offer._id] || ''}
-                    onChange={(e) => setCounterById((prev) => ({ ...prev, [offer._id]: e.target.value }))}
-                    placeholder="Your new counter offer"
-                    className="border border-borderColor rounded px-3 py-2"
-                  />
-                  <input
-                    type="text"
-                    value={messageById[offer._id] || ''}
-                    onChange={(e) => setMessageById((prev) => ({ ...prev, [offer._id]: e.target.value }))}
-                    placeholder="Optional message"
-                    className="border border-borderColor rounded px-3 py-2"
-                  />
-                </div>
-              ) : (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                  Final counter price received. You can only accept or reject now.
-                </p>
-              )}
+              <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2">
+                Admin has responded with a counter price. You can accept or reject this final response.
+              </p>
 
               <div className="flex flex-wrap gap-2">
                 <button
@@ -123,15 +96,6 @@ const UserOfferList = ({ offers, onRefresh }) => {
                 >
                   Accept Counter
                 </button>
-                {offer.offerCount < 3 && (
-                  <button
-                    disabled={loadingId === offer._id}
-                    onClick={() => respond(offer._id, 'counter')}
-                    className="bg-yellow-500 text-white px-3 py-1 rounded text-sm"
-                  >
-                    Counter Back
-                  </button>
-                )}
                 <button
                   disabled={loadingId === offer._id}
                   onClick={() => respond(offer._id, 'reject')}
