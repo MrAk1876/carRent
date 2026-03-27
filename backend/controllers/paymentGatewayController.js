@@ -193,6 +193,12 @@ exports.sendPaymentOtp = async (req, res) => {
       return res.status(422).json({ message: 'Enter a valid mobile number' });
     }
 
+    if (!isSmsConfigured()) {
+      return res.status(503).json({
+        message: 'SMS OTP is not configured on the server. Set SMS_PROVIDER and provider credentials first.',
+      });
+    }
+
     const now = new Date();
     session.mobileNumber = mobileNumber;
     session.otp = generateOtp();
@@ -201,11 +207,7 @@ exports.sendPaymentOtp = async (req, res) => {
     session.otpSentAt = now;
     session.otpExpiresAt = new Date(now.getTime() + OTP_WINDOW_MS);
     session.status = 'OTP_SENT';
-    if (!isSmsConfigured()) {
-      return res.status(503).json({
-        message: 'SMS OTP is not configured on the server. Set SMS_PROVIDER and provider credentials first.',
-      });
-    }
+    await session.save();
 
     const smsResult = await sendSMS(
       mobileNumber,
@@ -213,12 +215,30 @@ exports.sendPaymentOtp = async (req, res) => {
     );
 
     if (!smsResult?.sent) {
+      const devOtpBypass = String(process.env.DEV_OTP_BYPASS || '').trim() === 'true';
+      if (devOtpBypass) {
+        return res.json({
+          message: 'OTP generated (dev bypass)',
+          maskedMobileNumber: maskMobileNumber(session.mobileNumber),
+          otp: session.otp,
+          session: buildSessionResponse(session),
+        });
+      }
+      console.error('Payment OTP SMS delivery failed:', {
+        bookingId: session.bookingId,
+        userId: session.userId,
+        provider: String(process.env.SMS_PROVIDER || ''),
+        reason: smsResult?.reason,
+        statusCode: smsResult?.statusCode,
+        response: smsResult?.response,
+      });
+      session.status = 'FAILED';
+      await session.save();
       return res.status(502).json({
         message: 'Failed to deliver OTP to the provided mobile number. Please verify SMS configuration and try again.',
+        debug: smsResult?.reason ? `sms:${smsResult.reason}` : undefined,
       });
     }
-
-    await session.save();
 
     return res.json({
       message: 'OTP sent successfully',

@@ -142,12 +142,29 @@ const sendViaFast2SMS = async (phoneNumber, message) => {
     return { sent: false, skipped: true, reason: 'fast2sms-not-configured' };
   }
 
-  const cleanPhone = phoneNumber.replace(/[^\d]/g, '');
-  const requestBody = JSON.stringify({
-    route: 'q',
+  const rawDigits = phoneNumber.replace(/[^\d]/g, '');
+  const cleanPhone = rawDigits.length > 10 ? rawDigits.slice(-10) : rawDigits;
+  if (cleanPhone.length !== 10) {
+    return { sent: false, skipped: true, reason: 'fast2sms-invalid-number' };
+  }
+  const route = String(process.env.FAST2SMS_ROUTE || 'q').trim() || 'q';
+  const senderId = String(process.env.FAST2SMS_SENDER_ID || '').trim();
+  const templateId = String(process.env.FAST2SMS_TEMPLATE_ID || '').trim();
+  const entityId = String(process.env.FAST2SMS_ENTITY_ID || '').trim();
+
+  const requestPayload = {
+    route,
+    language: 'english',
+    flash: 0,
     numbers: cleanPhone,
     message,
-  });
+  };
+
+  if (senderId) requestPayload.sender_id = senderId;
+  if (templateId) requestPayload.template_id = templateId;
+  if (entityId) requestPayload.entity_id = entityId;
+
+  const requestBody = JSON.stringify(requestPayload);
 
   const response = await requestJson(
     'https://www.fast2sms.com/dev/bulkV2',

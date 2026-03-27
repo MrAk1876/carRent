@@ -92,6 +92,9 @@ const PaymentGateway = () => {
       setSession(response.session || null);
       setOtpDestination(response.maskedMobileNumber || maskMobileNumber(mobileNumber));
       setOtp('');
+      if (response.otp) {
+        setOtp(String(response.otp));
+      }
       notify.success('OTP sent to your mobile number');
     } catch (apiError) {
       notify.error(getErrorMessage(apiError, 'Failed to send OTP'));

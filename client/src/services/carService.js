@@ -165,8 +165,13 @@ export const getLocationAwareCars = async ({
 
   if (normalizedLocationId) {
     const locationCars = dedupeCars(await getCars({ locationId: normalizedLocationId }));
-    const grouped = splitCarsByHierarchy(locationCars, userLocation);
-    return { cars: [...grouped.localCars, ...grouped.cityFallbackCars], localCars: grouped.localCars, fallbackCars: grouped.cityFallbackCars, mode: 'location' };
+    const annotatedCars = annotateCarsWithUserLocation(locationCars, userLocation);
+    return {
+      cars: annotatedCars,
+      localCars: annotatedCars,
+      fallbackCars: [],
+      mode: 'location',
+    };
   }
 
   if (normalizedCityId) {
@@ -176,16 +181,24 @@ export const getLocationAwareCars = async ({
         cityId: normalizedCityId,
       }),
     );
-    const grouped = splitCarsByHierarchy(cityCars, userLocation);
-    const fallbackCars = [...grouped.cityFallbackCars];
-    return { cars: [...grouped.localCars, ...fallbackCars], localCars: grouped.localCars, fallbackCars, mode: 'city' };
+    const annotatedCars = annotateCarsWithUserLocation(cityCars, userLocation);
+    return {
+      cars: annotatedCars,
+      localCars: annotatedCars,
+      fallbackCars: [],
+      mode: 'city',
+    };
   }
 
   if (normalizedStateId) {
     const stateCars = dedupeCars(await getCars({ stateId: normalizedStateId }));
-    const grouped = splitCarsByHierarchy(stateCars, userLocation);
-    const fallbackCars = [...grouped.cityFallbackCars, ...grouped.stateFallbackCars];
-    return { cars: [...grouped.localCars, ...fallbackCars], localCars: grouped.localCars, fallbackCars, mode: 'state' };
+    const annotatedCars = annotateCarsWithUserLocation(stateCars, userLocation);
+    return {
+      cars: annotatedCars,
+      localCars: annotatedCars,
+      fallbackCars: [],
+      mode: 'state',
+    };
   }
 
   if (normalizedUserLocationId || normalizedUserCityId || normalizedUserStateId) {
